@@ -3,169 +3,188 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD Audio Custom Cluster</title>
+    <title>TRD Hyper-Real Cluster</title>
     <style>
-        body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: 'Arial', sans-serif; overflow: hidden; }
-        canvas { background: radial-gradient(circle, #151515 0%, #000 100%); border: 2px solid #222; border-radius: 12px; max-width: 98vw; }
-        .buttons { margin-top: 20px; display: flex; gap: 40px; align-items: center; }
-        button { padding: 12px 35px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; border: 2px solid #333; background: #111; color: #666; transition: 0.2s; }
-        #ignBtn.active { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
-        #brBtn { width: 70px; height: 70px; border-radius: 50%; border: 4px solid #400; color: #500; font-size: 20px; }
-        #brBtn.active { background: #f00; color: #fff; border-color: #ffaaaa; box-shadow: 0 0 30px #f00; }
-        .info { font-size: 12px; color: #444; margin-top: 10px; }
+        body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
+        /* 実車のようなアクリルパネルの質感を出すためのオーバーレイ */
+        #container { position: relative; border-radius: 20px; overflow: hidden; box-shadow: 0 0 100px rgba(0,0,0,1), inset 0 0 50px rgba(255,255,255,0.05); }
+        canvas { background: #050505; display: block; }
+        .glare { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 50%, rgba(255,255,255,0.02) 100%); }
+        .btn-panel { margin-top: 30px; display: flex; gap: 40px; }
+        button { background: #111; color: #444; border: 2px solid #222; padding: 15px 40px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 15px rgba(255,0,0,0.4); text-shadow: 0 0 5px #f00; }
+        #brBtn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid #300; font-size: 24px; }
+        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 30px #f00; border-color: #fff; }
     </style>
 </head>
 <body>
 
-<canvas id="cluster" width="1000" height="480"></canvas>
+<div id="container">
+    <canvas id="cluster" width="1050" height="480"></canvas>
+    <div class="glare"></div>
+</div>
 
-<div class="buttons">
-    <button id="ignBtn">IGNITION / SOUND ON</button>
+<div class="btn-panel">
+    <button id="ignBtn">ENGINE START</button>
     <button id="brBtn">Br</button>
 </div>
-<div class="info">※ブラウザの仕様により、ボタンを押すと音が鳴り始めます</div>
 
 <script>
 const canvas = document.getElementById('cluster');
 const ctx = canvas.getContext('2d');
-const brBtn = document.getElementById('brBtn');
 const ignBtn = document.getElementById('ignBtn');
+const brBtn = document.getElementById('brBtn');
 
-let running = false;
-let boost = false;
+let running = false, boost = false;
 let speed = 0, targetSpeed = 0;
 let rpm = 0, targetRpm = 0;
-let rtt = 0;
-let netType = "N/A";
+let rtt = 0, vibration = 0;
 
-// --- オーディオエンジン設定 ---
-let audioCtx, oscillator, gainNode;
+// --- Web Audio: リアルなエンジン重低音 ---
+let audioCtx, mainGain, lowOsc, highOsc;
 
-function startAudio() {
+function initAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    oscillator = audioCtx.createOscillator();
-    gainNode = audioCtx.createGain();
-
-    oscillator.type = 'sawtooth'; // エンジンっぽいノコギリ波
-    oscillator.frequency.setValueAtTime(50, audioCtx.currentTime); 
-    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    oscillator.start();
-}
-
-function updateAudio(currentSpeed) {
-    if (!audioCtx) return;
+    mainGain = audioCtx.createGain();
     
-    // 速度（0-200）を音量（0.0-0.5）と周波数（50-150Hz）に変換
-    let volume = running ? Math.max(0.05, (currentSpeed / 200) * 0.5) : 0;
-    let pitch = 50 + (currentSpeed / 200) * 100;
+    // 重低音 (エンジンのドロドロ感)
+    lowOsc = audioCtx.createOscillator();
+    lowOsc.type = 'sawtooth';
+    let lowGain = audioCtx.createGain();
+    
+    // 高音 (吹け上がり感)
+    highOsc = audioCtx.createOscillator();
+    highOsc.type = 'square';
+    let highGain = audioCtx.createGain();
 
-    // 音を滑らかに変化させる
-    gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.1);
-    oscillator.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.1);
+    lowOsc.connect(lowGain);
+    highOsc.connect(highGain);
+    lowGain.connect(mainGain);
+    highGain.connect(mainGain);
+    mainGain.connect(audioCtx.destination);
+
+    lowOsc.start(); highOsc.start();
+    mainGain.gain.setValueAtTime(0, audioCtx.currentTime);
 }
 
-// データ同期
+function updateSound(s) {
+    if (!audioCtx) return;
+    let vol = running ? 0.2 + (s/200)*0.5 : 0;
+    let freq = 30 + (s/200)*80; // アイドリング30Hz〜
+    mainGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+    lowOsc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+    highOsc.frequency.setTargetAtTime(freq * 2.01, audioCtx.currentTime, 0.1);
+}
+
+// --- メインループ ---
 setInterval(() => {
     if (!running) return;
-    const n = navigator.connection || { downlink: 42, rtt: 40, effectiveType: 'wifi' };
-    targetSpeed = (n.downlink || 42) * (0.8 + Math.random() * 0.4);
-    targetRpm = 800 + (targetSpeed * 40) + (Math.random() * 300);
-    rtt = n.rtt || 0;
-    netType = (n.effectiveType || "Wi-Fi").toUpperCase();
-}, 500);
+    const n = navigator.connection || { downlink: 45, rtt: 30 };
+    targetSpeed = (n.downlink || 45) * (0.9 + Math.random() * 0.2);
+    targetRpm = 800 + (targetSpeed * 35) + (Math.random() * 500);
+    rtt = n.rtt || 20;
+    vibration = (Math.random() - 0.5) * (1 + speed/50); // 速度に合わせて振動増
+}, 100);
 
 ignBtn.onclick = () => {
-    if (!audioCtx) startAudio(); // 最初のクリックでオーディオ開始
+    if(!audioCtx) initAudio();
     running = !running;
     ignBtn.classList.toggle('active');
-    if (!running) {
-        targetSpeed = 0;
-        targetRpm = 0;
-        boost = false;
-        brBtn.classList.remove('active');
-    }
 };
-
 brBtn.onclick = () => { if(running) { boost = !boost; brBtn.classList.toggle('active'); }};
 
 function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    let ease = boost ? 0.2 : 0.08;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    let ease = boost ? 0.2 : 0.05;
     speed += (targetSpeed - speed) * ease;
     rpm += (targetRpm - rpm) * ease;
+    updateSound(speed);
 
-    // サウンド更新
-    updateAudio(speed);
+    // 全体を微細に振動させる (アイドリング演出)
+    ctx.save();
+    if(running) ctx.translate(vibration, vibration);
 
     // 1 & 2: メインメーター
-    const sMax = boost ? 60 : 200;
-    const sStep = boost ? 2.5 : 10;
-    drawMainGauge(ctx, 320, 240, 190, 0, sMax, speed, "Mbps", sStep, boost, "TRD SPEED");
-    drawMainGauge(ctx, 720, 240, 190, 0, 8000, rpm, "x1000r/min", 1000, boost, "TACHO");
+    drawTRDGauge(ctx, 320, 240, 200, 0, (boost?60:240), speed, (boost?2.5:20), boost, "km/h (Mbps)");
+    drawTRDGauge(ctx, 730, 240, 200, 0, 8000, rpm, 1000, boost, "x1000r/min");
 
-    // 左下: 時刻計
-    drawDigitalBox(ctx, 60, 360, 130, 50, "CLOCK", getClock(), "#aaa");
+    // 時刻・RTT・TYPE (デジタル枠)
+    drawDigital(ctx, 60, 380, 140, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#888");
+    drawDigital(ctx, 750, 410, 120, "RTT/ms", Math.floor(rtt), "#f70");
+    drawDigital(ctx, 885, 410, 120, "NET", "5G/Wi-Fi", "#0f0");
 
-    // 右下: 3 & 4
-    drawDigitalBox(ctx, 720, 400, 120, 45, "RTT (PING)", rtt + " ms", "#f90");
-    drawDigitalBox(ctx, 855, 400, 120, 45, "NET TYPE", netType, "#0f0");
-
-    // 警告灯: BRAKE
-    let isWarning = (running && speed < 20) || !running;
-    if (isWarning && Math.sin(Date.now()/150) > 0) {
-        drawWarningLamp(ctx, 100, 180, "BRAKE", "( ! )", "#f00");
+    // 警告灯 (20以下でBRAKE点滅)
+    if((running && speed < 20) || !running) {
+        if(Math.sin(Date.now()/150) > 0) drawLamp(ctx, 100, 180, "BRAKE", "#f00");
     }
 
+    ctx.restore();
     requestAnimationFrame(draw);
 }
 
-// (以下、共通描画関数)
-function getClock() {
-    const d = new Date();
-    return d.getHours().toString().padStart(2,'0') + ":" + d.getMinutes().toString().padStart(2,'0');
-}
+function drawTRDGauge(ctx, x, y, r, min, max, val, step, isB, unit) {
+    const start = 0.75 * Math.PI, end = 2.25 * Math.PI;
 
-function drawMainGauge(ctx, x, y, r, min, max, val, unit, step, isB, title) {
-    const start = 0.75 * Math.PI; const end = 2.25 * Math.PI;
+    // 背面の数字と目盛り (透過照明風のボカシ)
+    ctx.shadowBlur = running ? 10 : 0;
+    ctx.shadowColor = "rgba(255,255,255,0.3)";
+    
     for (let i = min; i <= max; i += step) {
         let ang = start + ((i - min) / (max - min)) * (end - start);
-        let main = (i % (step * (isB ? 1 : 2)) === 0);
-        ctx.strokeStyle = main ? "#fff" : "#333";
-        ctx.lineWidth = main ? 3 : 1;
+        let isMain = (i % (step * (isB?1:2)) === 0);
+        ctx.strokeStyle = isMain ? "#ddd" : "#333";
+        ctx.lineWidth = isMain ? 3 : 1;
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(ang)*(r-(main?18:8)), y + Math.sin(ang)*(r-(main?18:8)));
+        ctx.moveTo(x + Math.cos(ang)*(r-15), y + Math.sin(ang)*(r-15));
         ctx.lineTo(x + Math.cos(ang)*r, y + Math.sin(ang)*r);
         ctx.stroke();
-        if (main) {
-            ctx.fillStyle = "#fff"; ctx.font = `italic bold ${isB?13:17}px Arial`; ctx.textAlign = "center";
-            ctx.fillText((max===8000 ? i/1000 : i), x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
+
+        if (isMain) {
+            ctx.fillStyle = running ? "#fff" : "#444";
+            ctx.font = `italic bold ${isB?14:20}px Arial`;
+            ctx.textAlign = "center";
+            ctx.fillText((max===8000?i/1000:i), x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
         }
     }
+    ctx.shadowBlur = 0;
+
+    // 針の「残像」 (少し前の位置に薄い針を描く)
     let nAng = start + ((Math.min(val, max) - min) / (max - min)) * (end - start);
-    ctx.shadowBlur = isB ? 20 : 0; ctx.shadowColor = "#f00";
-    ctx.strokeStyle = isB ? "#fff" : "#ff4500";
-    ctx.lineWidth = 6; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(nAng)*(r-25), y + Math.sin(nAng)*(r-25));
-    ctx.stroke(); ctx.shadowBlur = 0;
-    ctx.fillStyle = "#666"; ctx.font = "bold 20px Arial"; ctx.fillText(title, x, y - 50);
+    ctx.strokeStyle = isB ? "rgba(255,255,255,0.8)" : "rgba(255,69,0,0.8)";
+    ctx.lineWidth = 6;
+    ctx.lineCap = "round";
+    
+    // 本物の針 (発光)
+    if(running) {
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = isB ? "#fff" : "#f00";
+    }
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(nAng)*(r-20), y + Math.sin(nAng)*(r-20));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // センターキャップ
+    ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "#333"; ctx.stroke();
 }
 
-function drawDigitalBox(ctx, x, y, w, h, label, text, color) {
-    ctx.fillStyle = "#0a0a0a"; ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = "#333"; ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = color; ctx.font = "bold 22px monospace"; ctx.textAlign = "center";
-    ctx.fillText(text, x + w/2, y + h/2 + 8);
-    ctx.fillStyle = "#555"; ctx.font = "9px Arial"; ctx.fillText(label, x + w/2, y - 8);
+function drawDigital(ctx, x, y, w, label, val, col) {
+    ctx.fillStyle = "#0a0a0a"; ctx.fillRect(x, y, w, 45);
+    ctx.strokeStyle = "#222"; ctx.strokeRect(x, y, w, 45);
+    ctx.fillStyle = running ? col : "#222";
+    ctx.font = "bold 22px monospace"; ctx.textAlign = "center";
+    ctx.fillText(val, x + w/2, y + 32);
+    ctx.fillStyle = "#444"; ctx.font = "10px Arial"; ctx.fillText(label, x + w/2, y - 8);
 }
 
-function drawWarningLamp(ctx, x, y, label, icon, color) {
-    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
-    ctx.fillText(label, x, y + 35); ctx.fillText(icon, x, y + 5);
+function drawLamp(ctx, x, y, txt, col) {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x,y,18,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
+    ctx.fillText(txt, x, y + 35);
 }
 
 draw();
