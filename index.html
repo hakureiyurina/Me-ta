@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Speedometer WiFi Test</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Arial', sans-serif;
+        }
+
+        /* メーターの外枠 */
+        .gauge-container {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            border: 10px solid #333;
+            border-radius: 50%;
+            background: radial-gradient(circle, #222, #000);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+        }
+
+        /* 針のデザイン */
+        .needle {
+            position: absolute;
+            bottom: 50%;
+            left: 50%;
+            width: 4px;
+            height: 120px;
+            background: #ff4757;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-120deg); /* 初期位置 */
+            transition: transform 1s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+            z-index: 3;
+            border-radius: 4px;
+        }
+
+        /* センターキャップ */
+        .hub {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            background: #ddd;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 4;
+        }
+
+        /* 速度表示テキスト */
+        .display {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00d2ff;
+        }
+
+        .unit { font-size: 1rem; color: #888; }
+
+        button {
+            margin-top: 30px;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            background: #00d2ff;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            color: #000;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        button:hover { background: #fff; box-shadow: 0 0 15px #00d2ff; }
+        button:disabled { background: #555; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="gauge-container">
+        <div class="needle" id="needle"></div>
+        <div class="hub"></div>
+        <div class="display">
+            <span id="speed-text">0.0</span>
+            <div class="unit">Mbps</div>
+        </div>
+    </div>
+
+    <button id="start-btn" onclick="startTest()">測定開始</button>
+
+    <script>
+        async function startTest() {
+            const btn = document.getElementById('start-btn');
+            const needle = document.getElementById('needle');
+            const speedText = document.getElementById('speed-text');
+            
+            btn.disabled = true;
+            btn.innerText = "測定中...";
+
+            // 測定用ファイル (Google Hosted Libraries の一部を利用: 約1.5MB)
+            const testFile = "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?cachebuster=" + Date.now();
+            
+            try {
+                const startTime = performance.now();
+                const response = await fetch(testFile);
+                const reader = response.body.getReader();
+                
+                let receivedLength = 0;
+                while(true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    receivedLength += value.length;
+                }
+                
+                const endTime = performance.now();
+                const durationInSeconds = (endTime - startTime) / 1000;
+                const bitsLoaded = receivedLength * 8;
+                const speedMbps = (bitsLoaded / durationInSeconds / 1000000).toFixed(1);
+
+                // メーター反映 (0~100Mbpsを想定して -120度〜120度の範囲で回転)
+                // 100Mbps以上の場合は120度(MAX)で止める
+                const maxSpeed = 100;
+                const cappedSpeed = Math.min(speedMbps, maxSpeed);
+                const rotation = (cappedSpeed / maxSpeed) * 240 - 120;
+
+                needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+                speedText.innerText = speedMbps;
+
+            } catch (error) {
+                alert("エラーが発生しました。ネット接続を確認してください。");
+                console.error(error);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "再測定";
+            }
+        }
+    </script>
+</body>
+</html>
