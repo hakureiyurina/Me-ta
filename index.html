@@ -3,153 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic Scale TRD Cluster</title>
+    <title>TRD Full Custom Cluster</title>
     <style>
-        body { background: #050505; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: sans-serif; }
-        canvas { background: #000; border: 3px solid #444; border-radius: 20px; max-width: 95vw; box-shadow: 0 0 40px rgba(0,0,0,1); }
-        .ui-panel { margin-top: 25px; display: flex; gap: 30px; align-items: center; }
-        #boostBtn { 
-            width: 85px; height: 85px; border-radius: 50%; border: 5px solid #500;
-            background: #200; color: #f33; font-weight: bold; font-size: 22px;
-            cursor: pointer; transition: 0.1s; box-shadow: 0 0 15px #500;
-        }
-        #boostBtn.active { background: #f00; color: #fff; border-color: #ffaaaa; box-shadow: 0 0 40px #f00; transform: scale(1.1) translateY(-5px); }
-        #toggleBtn { padding: 12px 25px; background: #333; color: #aaa; border: 1px solid #555; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        #toggleBtn.active { color: #0f0; border-color: #0f0; }
-        .label { font-family: monospace; color: #666; font-size: 12px; margin-top: 10px; }
+        body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: sans-serif; overflow: hidden; }
+        canvas { background: #000; border: 2px solid #222; border-radius: 10px; max-width: 98vw; }
+        .panel { margin-top: 15px; display: flex; gap: 20px; }
+        button { padding: 10px 20px; border-radius: 5px; border: none; font-weight: bold; cursor: pointer; }
+        #boostBtn { background: #200; color: #f00; border: 2px solid #500; }
+        #boostBtn.active { background: #f00; color: #fff; box-shadow: 0 0 20px #f00; }
     </style>
 </head>
 <body>
 
-<canvas id="cluster" width="850" height="400"></canvas>
+<canvas id="cluster" width="1000" height="450"></canvas>
 
-<div class="ui-panel">
-    <button id="toggleBtn">IGNITION</button>
+<div class="panel">
+    <button id="toggleBtn" style="background: #333; color: white;">IGNITION</button>
     <button id="boostBtn">Br</button>
 </div>
-<div class="label">BOOST ON: 0.0 - 60.0 (DETAILED) / OFF: 0 - 200 (WIDE)</div>
 
 <script>
 const canvas = document.getElementById('cluster');
 const ctx = canvas.getContext('2d');
-const btn = document.getElementById('toggleBtn');
 const boostBtn = document.getElementById('boostBtn');
+const toggleBtn = document.getElementById('toggleBtn');
 
 let isRunning = false;
 let isBoost = false;
-let currentVal = 0, targetVal = 0;
-let currentRpm = 0, targetRpm = 0;
+let speed = 0, targetSpeed = 0;
+let rpm = 0, targetRpm = 0;
+let rtt = 0; // 反応速度(Ping)
 
-// データ取得と更新 (0.5秒おき)
-function update() {
+// 0.5秒おきのデータ更新
+setInterval(() => {
     if (!isRunning) return;
-    const conn = navigator.connection || { downlink: 45 };
-    let speed = conn.downlink || 45;
+    const conn = navigator.connection || { downlink: 40, rtt: 50 };
+    let s = conn.downlink || 40;
+    rtt = conn.rtt || 50;
 
-    // 生の通信速度をターゲットにする
-    targetVal = speed * (0.8 + Math.random() * 0.4);
-    targetRpm = 1000 + (targetVal * 40);
-}
-setInterval(update, 500);
+    targetSpeed = s * (0.9 + Math.random() * 0.2);
+    targetRpm = 1000 + (targetSpeed * 35);
+}, 500);
 
-btn.onclick = () => {
-    isRunning = !isRunning;
-    btn.classList.toggle('active');
-    btn.innerText = isRunning ? "ENGINE ON" : "IGNITION";
-    if (!isRunning) { targetVal = 0; targetRpm = 0; isBoost = false; boostBtn.classList.remove('active'); }
-};
-
-boostBtn.onclick = () => { if(isRunning) { isBoost = !isBoost; boostBtn.classList.toggle('active'); } };
+toggleBtn.onclick = () => { isRunning = !isRunning; toggleBtn.style.color = isRunning ? "#0f0" : "#fff"; };
+boostBtn.onclick = () => { if(isRunning) { isBoost = !isBoost; boostBtn.classList.toggle('active'); }};
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 針の動き（ブースト時はズームするので少し速めに追従）
     let easing = isBoost ? 0.15 : 0.08;
-    currentVal += (targetVal - currentVal) * easing;
-    currentRpm += (targetRpm - currentRpm) * easing;
+    speed += (targetSpeed - speed) * easing;
+    rpm += (targetRpm - rpm) * easing;
 
-    // 左：可変スケールメーター
-    // 通常時 MAX:200 / ブースト時 MAX:60
-    let maxRange = isBoost ? 60 : 200;
-    let step = isBoost ? 2.5 : 10;
-    
-    drawGauge(ctx, 240, 200, 160, 0, maxRange, currentVal, "Mbps", step, isBoost);
-    
-    // 右：タコメーター（固定スケール 0-8000）
-    drawGauge(ctx, 610, 200, 160, 0, 8000, currentRpm, "x1000r/min", 1000, isBoost);
+    // --- メインメーター (ラフの1, 2) ---
+    const maxS = isBoost ? 60 : 200;
+    const stepS = isBoost ? 2.5 : 10;
+    drawGauge(ctx, 300, 220, 180, 0, maxS, speed, "Mbps", stepS, isBoost, "TRD");
+    drawGauge(ctx, 700, 220, 180, 0, 8000, rpm, "RPM", 1000, isBoost, "TACHO");
+
+    // --- 左側：時刻計 (ラフの「時刻」) ---
+    drawSubGauge(ctx, 60, 300, 80, "CLOCK", getFormattedTime());
+
+    // --- 右側下：RTT/通信品質 (ラフの3, 4) ---
+    drawSubGauge(ctx, 800, 380, 100, "RTT/ms", Math.floor(rtt));
+
+    // --- 警告灯 (ラフの「20以下でもえた」) ---
+    // Wi-Fi速度が20以下、またはエンジンOFF時に点灯
+    if (!isRunning || speed < 20) {
+        drawWarningLight(ctx, 100, 150, "BRAKE", "#f00", (Math.sin(Date.now()/200) > 0)); 
+    }
 
     requestAnimationFrame(draw);
 }
 
-function drawGauge(ctx, x, y, radius, min, max, value, label, step, boostMode) {
+function getFormattedTime() {
+    const now = new Date();
+    return now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+}
+
+function drawGauge(ctx, x, y, radius, min, max, value, label, step, boost, title) {
     const startAngle = 0.75 * Math.PI;
     const endAngle = 2.25 * Math.PI;
 
-    // メーターのベース
-    ctx.strokeStyle = boostMode ? "rgba(255,0,0,0.3)" : "#333";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, startAngle, endAngle);
-    ctx.stroke();
-
-    // 目盛りと数字の描画
+    // 目盛り
     for (let i = min; i <= max; i += step) {
         let angle = startAngle + ((i - min) / (max - min)) * (endAngle - startAngle);
-        let isMain = (i % (step * 2) === 0) || boostMode; // ブースト時は全目盛りを強調
-
-        ctx.strokeStyle = isMain ? "white" : "#444";
+        let isMain = (i % (step * 2) === 0) || boost;
+        ctx.strokeStyle = isMain ? "#fff" : "#444";
         ctx.lineWidth = isMain ? 2 : 1;
         ctx.beginPath();
-        let innerR = isMain ? 15 : 7;
-        ctx.moveTo(x + Math.cos(angle) * (radius - innerR), y + Math.sin(angle) * (radius - innerR));
-        ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+        ctx.moveTo(x + Math.cos(angle)*(radius-10), y + Math.sin(angle)*(radius-10));
+        ctx.lineTo(x + Math.cos(angle)*radius, y + Math.sin(angle)*radius);
         ctx.stroke();
 
-        // 数字の描画 (メイン目盛りのみ)
         if (isMain) {
-            ctx.fillStyle = "white";
-            ctx.font = boostMode ? "bold 12px Arial" : "italic bold 15px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.font = "14px Arial";
             ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            let tx = x + Math.cos(angle) * (radius - 35);
-            let ty = y + Math.sin(angle) * (radius - 35);
-            
-            let displayVal = (max === 8000) ? i/1000 : i;
-            ctx.fillText(displayVal, tx, ty);
+            ctx.fillText((max === 8000 ? i/1000 : i), x + Math.cos(angle)*(radius-30), y + Math.sin(angle)*(radius-30));
         }
     }
 
-    // 針の描画
-    let needleVal = Math.min(value, max); // メーターを突き抜けないようにガード
-    let needleAngle = startAngle + ((needleVal - min) / (max - min)) * (endAngle - startAngle);
-    
-    ctx.shadowBlur = boostMode ? 20 : 0;
-    ctx.shadowColor = "red";
-    ctx.strokeStyle = boostMode ? "#fff" : "#ff4500";
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
+    // 針
+    let nAngle = startAngle + ((Math.min(value, max) - min) / (max - min)) * (endAngle - startAngle);
+    ctx.strokeStyle = boost ? "#fff" : "#ff4500";
+    ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(needleAngle) * (radius - 20), y + Math.sin(needleAngle) * (radius - 20));
+    ctx.lineTo(x + Math.cos(nAngle)*(radius-15), y + Math.sin(nAngle)*(radius-15));
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
-    // センターキャップ
-    ctx.beginPath();
-    ctx.arc(x, y, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "#111";
-    ctx.fill();
+    ctx.fillStyle = "#888";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText(title, x, y - 40);
+}
+
+function drawSubGauge(ctx, x, y, width, label, value) {
+    ctx.fillStyle = "#222";
+    ctx.fillRect(x, y, width, 40);
     ctx.strokeStyle = "#444";
-    ctx.stroke();
+    ctx.strokeRect(x, y, width, 40);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 18px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(value, x + 10, y + 25);
+    ctx.font = "10px Arial";
+    ctx.fillStyle = "#666";
+    ctx.fillText(label, x, y - 5);
+}
 
-    ctx.fillStyle = boostMode ? "#f00" : "#888";
-    ctx.font = "bold 14px Arial";
-    ctx.fillText(label, x, y + 60);
-    if(boostMode && max !== 8000) {
-        ctx.font = "10px monospace";
-        ctx.fillText("HIGH-RES SCAN", x, y - 40);
-    }
+function drawWarningLight(ctx, x, y, text, color, isOn) {
+    ctx.globalAlpha = isOn ? 1.0 : 0.2;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 15, 0, Math.PI*2);
+    ctx.fill();
+    ctx.font = "bold 10px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(text, x, y + 30);
+    ctx.globalAlpha = 1.0;
 }
 
 draw();
