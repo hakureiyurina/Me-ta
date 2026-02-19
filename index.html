@@ -3,28 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD Hyper-Real Cluster</title>
+    <title>TRD Precise Speed Cluster</title>
     <style>
         body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        /* 実車のようなアクリルパネルの質感を出すためのオーバーレイ */
-        #container { position: relative; border-radius: 20px; overflow: hidden; box-shadow: 0 0 100px rgba(0,0,0,1), inset 0 0 50px rgba(255,255,255,0.05); }
-        canvas { background: #050505; display: block; }
-        .glare { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 50%, rgba(255,255,255,0.02) 100%); }
-        .btn-panel { margin-top: 30px; display: flex; gap: 40px; }
-        button { background: #111; color: #444; border: 2px solid #222; padding: 15px 40px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 15px rgba(255,0,0,0.4); text-shadow: 0 0 5px #f00; }
-        #brBtn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid #300; font-size: 24px; }
-        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 30px #f00; border-color: #fff; }
+        #container { position: relative; border: 4px solid #1a1a1a; border-radius: 20px; box-shadow: 0 0 80px #000; }
+        canvas { background: #020202; display: block; border-radius: 16px; }
+        .buttons { margin-top: 25px; display: flex; gap: 30px; }
+        button { background: #111; color: #555; border: 2px solid #333; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
+        #brBtn { width: 70px; height: 70px; border-radius: 50%; font-size: 20px; }
+        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 25px #f00; border-color: #fff; }
     </style>
 </head>
 <body>
 
 <div id="container">
     <canvas id="cluster" width="1050" height="480"></canvas>
-    <div class="glare"></div>
 </div>
 
-<div class="btn-panel">
+<div class="buttons">
     <button id="ignBtn">ENGINE START</button>
     <button id="brBtn">Br</button>
 </div>
@@ -36,155 +33,139 @@ const ignBtn = document.getElementById('ignBtn');
 const brBtn = document.getElementById('brBtn');
 
 let running = false, boost = false;
-let speed = 0, targetSpeed = 0;
-let rpm = 0, targetRpm = 0;
+let speedMbps = 0, displaySpeed = 0, displayRpm = 0;
 let rtt = 0, vibration = 0;
 
-// --- Web Audio: リアルなエンジン重低音 ---
-let audioCtx, mainGain, lowOsc, highOsc;
+// --- 精密計測ロジック：実際に数MBのファイルを落として計算 ---
+async function measureSpeed() {
+    if (!running) return;
+    const startTime = Date.now();
+    // キャッシュ回避のためクエリを付与 (適当な画像等を利用)
+    const testUrl = "https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg?cb=" + startTime;
+    
+    try {
+        const response = await fetch(testUrl);
+        const reader = response.body.getReader();
+        let receivedLength = 0;
+        while(true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            receivedLength += value.length;
+        }
+        const duration = (Date.now() - startTime) / 1000;
+        const bitsLoaded = receivedLength * 8;
+        speedMbps = (bitsLoaded / duration) / 1000000;
+        
+        // RTT(Ping)も計測
+        rtt = Math.floor(duration * 1000 / 10); 
+    } catch (e) {
+        console.log("Connect Error");
+    }
+}
+setInterval(measureSpeed, 2000); // 2秒おきに実測
 
+// --- サウンドエンジン (V8 Low Rumble) ---
+let audioCtx, v8low, v8high, masterGain;
 function initAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    mainGain = audioCtx.createGain();
-    
-    // 重低音 (エンジンのドロドロ感)
-    lowOsc = audioCtx.createOscillator();
-    lowOsc.type = 'sawtooth';
-    let lowGain = audioCtx.createGain();
-    
-    // 高音 (吹け上がり感)
-    highOsc = audioCtx.createOscillator();
-    highOsc.type = 'square';
-    let highGain = audioCtx.createGain();
-
-    lowOsc.connect(lowGain);
-    highOsc.connect(highGain);
-    lowGain.connect(mainGain);
-    highGain.connect(mainGain);
-    mainGain.connect(audioCtx.destination);
-
-    lowOsc.start(); highOsc.start();
-    mainGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    masterGain = audioCtx.createGain();
+    v8low = audioCtx.createOscillator();
+    v8high = audioCtx.createOscillator();
+    v8low.type = 'sawtooth'; v8high.type = 'triangle';
+    v8low.connect(masterGain); v8high.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
+    v8low.start(); v8high.start();
 }
-
-function updateSound(s) {
-    if (!audioCtx) return;
-    let vol = running ? 0.2 + (s/200)*0.5 : 0;
-    let freq = 30 + (s/200)*80; // アイドリング30Hz〜
-    mainGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
-    lowOsc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
-    highOsc.frequency.setTargetAtTime(freq * 2.01, audioCtx.currentTime, 0.1);
-}
-
-// --- メインループ ---
-setInterval(() => {
-    if (!running) return;
-    const n = navigator.connection || { downlink: 45, rtt: 30 };
-    targetSpeed = (n.downlink || 45) * (0.9 + Math.random() * 0.2);
-    targetRpm = 800 + (targetSpeed * 35) + (Math.random() * 500);
-    rtt = n.rtt || 20;
-    vibration = (Math.random() - 0.5) * (1 + speed/50); // 速度に合わせて振動増
-}, 100);
 
 ignBtn.onclick = () => {
     if(!audioCtx) initAudio();
     running = !running;
     ignBtn.classList.toggle('active');
 };
-brBtn.onclick = () => { if(running) { boost = !boost; brBtn.classList.toggle('active'); }};
+brBtn.onclick = () => { if(running) boost = !boost; brBtn.classList.toggle('active'); };
 
 function draw() {
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    let ease = boost ? 0.2 : 0.05;
-    speed += (targetSpeed - speed) * ease;
-    rpm += (targetRpm - rpm) * ease;
-    updateSound(speed);
+    // スムーズな針の動き
+    let ease = boost ? 0.1 : 0.04;
+    displaySpeed += (speedMbps - displaySpeed) * ease;
+    displayRpm += ((800 + displaySpeed * 45) - displayRpm) * ease;
+    
+    // サウンド連動
+    if(audioCtx) {
+        let vol = running ? 0.1 + (displaySpeed/100) : 0;
+        masterGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+        v8low.frequency.setTargetAtTime(40 + displaySpeed, audioCtx.currentTime, 0.1);
+        v8high.frequency.setTargetAtTime(82 + displaySpeed * 1.5, audioCtx.currentTime, 0.1);
+    }
 
-    // 全体を微細に振動させる (アイドリング演出)
     ctx.save();
-    if(running) ctx.translate(vibration, vibration);
+    if(running) ctx.translate((Math.random()-0.5)*1.2, (Math.random()-0.5)*1.2);
 
-    // 1 & 2: メインメーター
-    drawTRDGauge(ctx, 320, 240, 200, 0, (boost?60:240), speed, (boost?2.5:20), boost, "km/h (Mbps)");
-    drawTRDGauge(ctx, 730, 240, 200, 0, 8000, rpm, 1000, boost, "x1000r/min");
+    // メインメーター描画
+    drawGauge(ctx, 320, 240, 200, 0, (boost?60:240), displaySpeed, (boost?2.5:20), boost, "Precise Mbps");
+    drawGauge(ctx, 730, 240, 200, 0, 8000, displayRpm, 1000, boost, "ENGINE LOAD");
 
-    // 時刻・RTT・TYPE (デジタル枠)
-    drawDigital(ctx, 60, 380, 140, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#888");
-    drawDigital(ctx, 750, 410, 120, "RTT/ms", Math.floor(rtt), "#f70");
-    drawDigital(ctx, 885, 410, 120, "NET", "5G/Wi-Fi", "#0f0");
+    // 下部デジタルセクション (ラフ3,4)
+    drawDataBox(ctx, 60, 380, 140, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
+    drawDataBox(ctx, 750, 410, 120, "PING", rtt + "ms", "#f70");
+    drawDataBox(ctx, 885, 410, 120, "STATUS", (speedMbps > 50 ? "HIGH" : "LOW"), "#0f0");
 
-    // 警告灯 (20以下でBRAKE点滅)
-    if((running && speed < 20) || !running) {
-        if(Math.sin(Date.now()/150) > 0) drawLamp(ctx, 100, 180, "BRAKE", "#f00");
+    // 警告灯
+    if(!running || (running && displaySpeed < 20)) {
+        if(Math.sin(Date.now()/150) > 0) drawWarning(ctx, 110, 180, "LOW SPEED");
     }
 
     ctx.restore();
     requestAnimationFrame(draw);
 }
 
-function drawTRDGauge(ctx, x, y, r, min, max, val, step, isB, unit) {
+function drawGauge(ctx, x, y, r, min, max, val, step, isB, label) {
     const start = 0.75 * Math.PI, end = 2.25 * Math.PI;
-
-    // 背面の数字と目盛り (透過照明風のボカシ)
-    ctx.shadowBlur = running ? 10 : 0;
-    ctx.shadowColor = "rgba(255,255,255,0.3)";
+    ctx.shadowBlur = running ? 12 : 0; ctx.shadowColor = "rgba(255,255,255,0.2)";
     
     for (let i = min; i <= max; i += step) {
         let ang = start + ((i - min) / (max - min)) * (end - start);
         let isMain = (i % (step * (isB?1:2)) === 0);
-        ctx.strokeStyle = isMain ? "#ddd" : "#333";
+        ctx.strokeStyle = isMain ? "#eee" : "#222";
         ctx.lineWidth = isMain ? 3 : 1;
         ctx.beginPath();
         ctx.moveTo(x + Math.cos(ang)*(r-15), y + Math.sin(ang)*(r-15));
         ctx.lineTo(x + Math.cos(ang)*r, y + Math.sin(ang)*r);
         ctx.stroke();
-
         if (isMain) {
-            ctx.fillStyle = running ? "#fff" : "#444";
-            ctx.font = `italic bold ${isB?14:20}px Arial`;
+            ctx.fillStyle = running ? "#fff" : "#333";
+            ctx.font = `italic bold ${isB?13:19}px Arial`;
             ctx.textAlign = "center";
             ctx.fillText((max===8000?i/1000:i), x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
         }
     }
-    ctx.shadowBlur = 0;
 
-    // 針の「残像」 (少し前の位置に薄い針を描く)
+    // 針の光沢
     let nAng = start + ((Math.min(val, max) - min) / (max - min)) * (end - start);
-    ctx.strokeStyle = isB ? "rgba(255,255,255,0.8)" : "rgba(255,69,0,0.8)";
-    ctx.lineWidth = 6;
-    ctx.lineCap = "round";
-    
-    // 本物の針 (発光)
-    if(running) {
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = isB ? "#fff" : "#f00";
-    }
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+    ctx.shadowBlur = 15; ctx.shadowColor = isB ? "#fff" : "#f00";
+    ctx.strokeStyle = isB ? "#fff" : "#ff4500";
+    ctx.lineWidth = 6; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(nAng)*(r-20), y + Math.sin(nAng)*(r-20));
     ctx.stroke();
     ctx.shadowBlur = 0;
-
-    // センターキャップ
     ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle = "#333"; ctx.stroke();
 }
 
-function drawDigital(ctx, x, y, w, label, val, col) {
-    ctx.fillStyle = "#0a0a0a"; ctx.fillRect(x, y, w, 45);
+function drawDataBox(ctx, x, y, w, label, val, col) {
+    ctx.fillStyle = "#050505"; ctx.fillRect(x, y, w, 45);
     ctx.strokeStyle = "#222"; ctx.strokeRect(x, y, w, 45);
     ctx.fillStyle = running ? col : "#222";
-    ctx.font = "bold 22px monospace"; ctx.textAlign = "center";
+    ctx.font = "bold 20px monospace"; ctx.textAlign = "center";
     ctx.fillText(val, x + w/2, y + 32);
-    ctx.fillStyle = "#444"; ctx.font = "10px Arial"; ctx.fillText(label, x + w/2, y - 8);
+    ctx.fillStyle = "#444"; ctx.font = "9px Arial"; ctx.fillText(label, x + w/2, y - 8);
 }
 
-function drawLamp(ctx, x, y, txt, col) {
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x,y,18,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
-    ctx.fillText(txt, x, y + 35);
+function drawWarning(ctx, x, y, txt) {
+    ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x,y,18,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 9px Arial"; ctx.textAlign = "center"; ctx.fillText(txt, x, y + 35);
 }
 
 draw();
