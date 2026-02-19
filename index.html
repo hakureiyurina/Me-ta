@@ -1,48 +1,150 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-    <title>Speed Monitor</title>
+    <meta charset="UTF-8">
+    <title>AE86 Style Speed Monitor</title>
     <style>
-        body { background: #000; color: #0f0; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        /* 枠 */
-        .gauge {
-            width: 250px; height: 130px; border: 5px solid #333; 
-            border-radius: 150px 150px 0 0; margin: 0 auto;
-            position: relative; overflow: hidden; background: #111;
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --ae86-orange: #ff9d00;
+            --ae86-bg: #1a1510;
         }
-        /* 針 */
-        .needle {
-            width: 4px; height: 100px; background: red;
-            position: absolute; bottom: 0; left: 50%;
-            transform-origin: bottom center;
-            transform: translateX(-50%) rotate(-90deg);
-            transition: transform 0.25s; /* 0.25秒で動く */
+
+        body {
+            background-color: #000;
+            color: var(--ae86-orange);
+            font-family: 'Share Tech Mono', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
         }
-        .speed { font-size: 50px; margin-top: 10px; }
+
+        /* メーター外枠 */
+        .cluster {
+            width: 500px;
+            padding: 30px;
+            background: var(--ae86-bg);
+            border: 4px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(255, 157, 0, 0.2);
+            position: relative;
+        }
+
+        /* タコメーター（速度を反映） */
+        .tacho-container {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 60px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--ae86-orange);
+        }
+
+        .bar {
+            flex: 1;
+            background: #332200;
+            height: var(--h);
+            transition: background 0.1s;
+        }
+
+        .bar.active {
+            background: var(--ae86-orange);
+            box-shadow: 0 0 8px var(--ae86-orange);
+        }
+
+        /* 速度表示（デジタル） */
+        .speed-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .label { font-size: 1rem; letter-spacing: 2px; }
+        
+        .number-group {
+            display: flex;
+            align-items: baseline;
+        }
+
+        .number {
+            font-size: 6rem;
+            line-height: 1;
+            margin-right: 10px;
+            text-shadow: 0 0 15px var(--ae86-orange);
+        }
+
+        .unit { font-size: 1.5rem; }
+
+        /* 装飾用ライン */
+        .decor {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 0.7rem;
+            text-align: right;
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
 
-    <div class="gauge">
-        <div class="needle" id="needle"></div>
+    <div class="cluster">
+        <div class="decor">TRUENO<br>NET-MONITOR System</div>
+        
+        <div class="tacho-container" id="tacho">
+            </div>
+
+        <div class="speed-display">
+            <div class="label">NETWORK<br>SPEED</div>
+            <div class="number-group">
+                <div class="number" id="val">00</div>
+                <div class="unit">Mbps</div>
+            </div>
+        </div>
     </div>
-    <div class="speed" id="val">0</div>
-    <div>Mbps</div>
+
+    <div style="margin-top: 20px; font-size: 0.8rem; color: #555;">
+        SAMPLING RATE: 0.25s / 4.0Hz
+    </div>
 
     <script>
-        // 0.25秒ごとに「勝手に」数字を作って動かす設定
+        // タコメーターのバーを30本作成
+        const tacho = document.getElementById('tacho');
+        const barCount = 30;
+        for (let i = 0; i < barCount; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            // バーの高さをだんだん高くする
+            bar.style.setProperty('--h', `${20 + (i * 2.5)}%`);
+            tacho.appendChild(bar);
+        }
+
+        const bars = document.querySelectorAll('.bar');
+        const valEl = document.getElementById('val');
+
+        // 0.25秒ごとの更新
         setInterval(() => {
-            // 40〜60の間で適当に数字を作る（ネット速度っぽく）
-            let mockSpeed = (Math.random() * 20 + 40).toFixed(1);
+            // リアルな速度っぽくランダム生成 (0〜100 Mbps)
+            let speed = Math.random() * 60 + 20; 
             
-            // 数字を表示
-            document.getElementById('val').innerText = mockSpeed;
-            
-            // 針を動かす（角度計算）
-            let angle = (mockSpeed / 100) * 180 - 90;
-            document.getElementById('needle').style.transform = `translateX(-50%) rotate(${angle}deg)`;
-        }, 250); // 250ミリ秒 ＝ 0.25秒
+            // 数字の更新
+            valEl.innerText = Math.floor(speed).toString().padStart(2, '0');
+
+            // バーの点灯
+            const activeCount = Math.floor((speed / 100) * barCount);
+            bars.forEach((bar, index) => {
+                if (index < activeCount) {
+                    bar.classList.add('active');
+                } else {
+                    bar.classList.remove('active');
+                }
+            });
+        }, 250);
     </script>
-    
 </body>
 </html>
