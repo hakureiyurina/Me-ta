@@ -2,104 +2,156 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>TRD Style Cluster Simulation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AE86 TRD Style Cluster</title>
     <style>
-        body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: white; font-family: sans-serif; }
-        canvas { background: #000; border: 5px solid #333; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        .controls { position: absolute; bottom: 20px; text-align: center; width: 100%; }
+        body { 
+            background: #050505; 
+            display: flex; 
+            flex-direction: column;
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            color: #eee;
+            font-family: 'Arial', sans-serif;
+        }
+        canvas { 
+            background: radial-gradient(circle, #1a1a1a 0%, #000 100%);
+            border: 4px solid #333; 
+            border-radius: 15px;
+            box-shadow: 0 0 50px rgba(0,0,0,1), inset 0 0 20px rgba(255,255,255,0.05);
+            max-width: 95%;
+        }
+        .controls { 
+            margin-top: 30px; 
+            display: flex; 
+            gap: 20px;
+        }
+        button {
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #c00;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+        button:active { transform: scale(0.95); background: #f00; }
+        .info { margin-top: 10px; color: #666; font-size: 0.9em; }
     </style>
 </head>
 <body>
 
-<canvas id="cluster" width="800" height="350"></canvas>
+<canvas id="cluster" width="850" height="350"></canvas>
 
 <div class="controls">
-    <p>アクセル（画面クリック）で加速・回転数アップ</p>
+    <button id="accelBtn">ACCEL (アクセル)</button>
 </div>
+<div class="info">ボタンを長押しすると加速します</div>
 
 <script>
 const canvas = document.getElementById('cluster');
 const ctx = canvas.getContext('2d');
+const btn = document.getElementById('accelBtn');
 
 let speed = 0;
-let rpm = 0;
+let rpm = 800; // アイドリング状態
 let isAccelerating = false;
 
-// イベントリスナー
-window.onmousedown = () => isAccelerating = true;
-window.onmouseup = () => isAccelerating = false;
+// マウスとタッチ両方に対応
+const startAccel = (e) => { e.preventDefault(); isAccelerating = true; };
+const stopAccel = () => isAccelerating = false;
+
+btn.addEventListener('mousedown', startAccel);
+btn.addEventListener('mouseup', stopAccel);
+btn.addEventListener('touchstart', startAccel);
+btn.addEventListener('touchend', stopAccel);
+window.addEventListener('mouseup', stopAccel);
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // 背景の描画
-    drawGauge(ctx, 200, 175, 140, 0, 240, speed, "km/h", "TRD");
-    drawGauge(ctx, 600, 175, 140, 0, 8, rpm, "x1000r/min", "");
+    // スピードメーター (左)
+    drawGauge(ctx, 220, 175, 150, 0, 240, speed, "km/h", "TRD", "#fff");
+    // タコメーター (右)
+    drawGauge(ctx, 630, 175, 150, 0, 8000, rpm, "x1000r/min", "", "#fff");
 
-    // ロジック更新
+    // 針の物理挙動
     if (isAccelerating) {
-        speed += 0.5;
-        rpm += 0.05;
+        speed += 1.2;
+        rpm += 150;
         if (speed > 240) speed = 240;
-        if (rpm > 8) rpm = 7.8 + Math.random() * 0.2; // レブリミット付近で振れる
+        if (rpm > 7800) rpm = 7700 + Math.random() * 300; // レブリミットの震え
     } else {
-        speed -= 0.3;
-        rpm -= 0.08;
+        speed -= 0.5;
+        rpm -= 100;
         if (speed < 0) speed = 0;
-        if (rpm < 0.8) rpm = 0.8; // アイドリング
+        if (rpm < 800) rpm = 800 + Math.random() * 20; // アイドリングの揺らぎ
     }
 
     requestAnimationFrame(draw);
 }
 
-function drawGauge(ctx, x, y, radius, min, max, value, unit, label) {
-    // 外枠
-    ctx.beginPath();
-    ctx.strokeStyle = '#fff';
+function drawGauge(ctx, x, y, radius, min, max, value, unit, label, color) {
+    const startAngle = 0.75 * Math.PI;
+    const endAngle = 2.25 * Math.PI;
+
+    // メモリの描画
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
     ctx.lineWidth = 2;
-    ctx.arc(x, y, radius, 0.75 * Math.PI, 2.25 * Math.PI);
-    ctx.stroke();
-
-    // 目盛り（簡略化）
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "white";
-    ctx.font = "bold 16px Arial";
-
-    for (let i = min; i <= max; i += (max / 10)) {
-        let angle = 0.75 * Math.PI + (i / max) * 1.5 * Math.PI;
-        let x1 = x + Math.cos(angle) * (radius - 10);
-        let y1 = y + Math.sin(angle) * (radius - 10);
-        let tx = x + Math.cos(angle) * (radius - 30);
-        let ty = y + Math.sin(angle) * (radius - 30);
+    for (let i = min; i <= max; i += (max / 12)) {
+        let angle = startAngle + ((i - min) / (max - min)) * (endAngle - startAngle);
+        let len = (i % (max/6) === 0) ? 15 : 8;
         
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+        ctx.moveTo(x + Math.cos(angle) * (radius - 5), y + Math.sin(angle) * (radius - 5));
+        ctx.lineTo(x + Math.cos(angle) * (radius - 5 - len), y + Math.sin(angle) * (radius - 5 - len));
         ctx.stroke();
-        ctx.fillText(Math.floor(i), tx, ty);
+
+        // 数字
+        if (i % (max/6) === 0) {
+            ctx.fillStyle = "white";
+            ctx.font = "italic bold 18px Arial";
+            let tx = x + Math.cos(angle) * (radius - 40);
+            let ty = y + Math.sin(angle) * (radius - 40);
+            let displayVal = (max === 8000) ? i / 1000 : i;
+            ctx.fillText(Math.floor(displayVal), tx, ty);
+        }
     }
 
-    // 単位とロゴ
+    // ロゴと単位
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#aaa";
     ctx.font = "14px Arial";
     ctx.fillText(unit, x, y + 60);
-    ctx.font = "bold 20px Arial";
-    ctx.fillText(label, x, y - 40);
+    ctx.fillStyle = "#fff";
+    ctx.font = "italic bold 24px Arial";
+    ctx.fillText(label, x, y - 50);
 
-    // 針
-    let needleAngle = 0.75 * Math.PI + (value / max) * 1.5 * Math.PI;
-    ctx.beginPath();
-    ctx.strokeStyle = "#ffae00"; // オレンジ色の針
+    // 針の描画 (オレンジ)
+    let needleAngle = startAngle + ((value - min) / (max - min)) * (endAngle - startAngle);
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "rgba(255, 100, 0, 0.5)";
+    ctx.strokeStyle = "#ff4500";
     ctx.lineWidth = 4;
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(needleAngle) * (radius - 20), y + Math.sin(needleAngle) * (radius - 20));
-    ctx.stroke();
-    
-    // 針のセンターキャップ
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.arc(x, y, 10, 0, 2 * Math.PI);
-    ctx.fillStyle = "#222";
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(needleAngle) * (radius - 25), y + Math.sin(needleAngle) * (radius - 25));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // センターキャップ
+    ctx.beginPath();
+    ctx.arc(x, y, 12, 0, 2 * Math.PI);
+    ctx.fillStyle = "#111";
     ctx.fill();
+    ctx.strokeStyle = "#444";
+    ctx.stroke();
 }
 
 draw();
