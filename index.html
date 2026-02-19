@@ -2,98 +2,122 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Advanced Real-time Speedtest</title>
+    <title>Real-time Network Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --main-color: #00f2fe; --accent-color: #4facfe; }
-        body { background: #0f172a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        :root { --neon-blue: #00d2ff; --neon-pink: #ff007f; }
+        body { background: #0a0e14; color: white; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
         
-        .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; width: 80%; max-width: 600px; }
-        .stat-card { background: #1e293b; padding: 15px; border-radius: 12px; text-align: center; border-bottom: 3px solid var(--main-color); }
-        .stat-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; }
-        .stat-value { font-size: 1.5rem; font-weight: bold; }
+        h1 { font-size: 1.2rem; color: var(--neon-blue); text-shadow: 0 0 10px var(--neon-blue); margin-bottom: 20px; }
 
-        .gauge-area { position: relative; width: 320px; height: 200px; overflow: hidden; }
-        .gauge-outer { width: 300px; height: 300px; border: 15px solid #334155; border-radius: 50%; position: absolute; top: 0; left: 10px; box-sizing: border-box; }
+        .container { display: flex; flex-wrap: wrap; justify-content: center; gap: 30px; max-width: 1000px; }
+
+        /* メーター部分 */
+        .gauge-box { position: relative; width: 300px; height: 180px; background: #161b22; border-radius: 20px; border: 1px solid #30363d; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
         .needle { 
-            position: absolute; bottom: 50px; left: 50%; width: 6px; height: 120px; 
-            background: linear-gradient(to top, var(--main-color), transparent); 
-            transform-origin: bottom center; transform: translateX(-50%) rotate(-90deg);
-            transition: transform 0.2s ease-out; z-index: 10; border-radius: 10px;
+            position: absolute; bottom: 40px; left: 50%; width: 4px; height: 100px; 
+            background: var(--neon-pink); border-radius: 4px; transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-90deg); transition: transform 0.5s cubic-bezier(0.1, 0.5, 0.1, 1); z-index: 5;
+            box-shadow: 0 0 10px var(--neon-pink);
         }
-        .speed-large { font-size: 3.5rem; font-weight: 800; margin: 10px 0; background: linear-gradient(to right, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .speed-val { font-size: 3rem; font-weight: 900; z-index: 10; margin-top: 40px; color: #fff; }
+        .unit { font-size: 1rem; color: #8b949e; }
 
-        button { background: linear-gradient(45deg, var(--main-color), var(--accent-color)); border: none; padding: 15px 40px; border-radius: 50px; color: #0f172a; font-weight: bold; font-size: 1.1rem; cursor: pointer; transition: 0.3s; margin-top: 20px; }
-        button:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(79, 172, 254, 0.5); }
+        /* グラフ部分 */
+        .graph-box { width: 450px; height: 180px; background: #161b22; border-radius: 20px; border: 1px solid #30363d; padding: 15px; box-sizing: border-box; }
+
+        .status-bar { margin-top: 20px; padding: 10px 20px; background: #21262d; border-radius: 30px; font-size: 0.9rem; border: 1px solid var(--neon-blue); box-shadow: 0 0 10px rgba(0,210,255,0.2); }
+        .dot { display: inline-block; width: 10px; height: 10px; background: #00ff00; border-radius: 50%; margin-right: 8px; animation: blink 1s infinite; }
+        @keyframes blink { 0% { opacity: 0.2; } 50% { opacity: 1; } 100% { opacity: 0.2; } }
     </style>
 </head>
 <body>
 
-    <div class="dashboard">
-        <div class="stat-card"><div class="stat-label">Ping</div><div class="stat-value" id="ping">-</div><small>ms</small></div>
-        <div class="stat-card"><div class="stat-label">Jitter</div><div class="stat-value" id="jitter">-</div><small>ms</small></div>
-        <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value" id="status" style="font-size: 1rem;">READY</div></div>
+    <h1>NETWORK LIVE MONITOR</h1>
+
+    <div class="container">
+        <div class="gauge-box">
+            <div class="needle" id="needle"></div>
+            <div class="speed-val" id="speed-text">0.0</div>
+            <div class="unit">Mbps</div>
+        </div>
+
+        <div class="graph-box">
+            <canvas id="speedChart"></canvas>
+        </div>
     </div>
 
-    <div class="gauge-area">
-        <div class="gauge-outer"></div>
-        <div class="needle" id="needle"></div>
+    <div class="status-bar">
+        <span class="dot"></span> LIVE MEASURING...
     </div>
-    
-    <div class="speed-large" id="main-speed">0</div>
-    <div style="color: #94a3b8; margin-top: -10px;">Mbps</div>
-
-    <button onclick="runDiagnostic()">テスト開始</button>
 
 <script>
-async function runDiagnostic() {
+    const speedText = document.getElementById('speed-text');
     const needle = document.getElementById('needle');
-    const speedEl = document.getElementById('main-speed');
-    const pingEl = document.getElementById('ping');
-    const jitterEl = document.getElementById('jitter');
-    const statusEl = document.getElementById('status');
+    const ctx = document.getElementById('speedChart').getContext('2d');
 
-    statusEl.innerText = "TESTING...";
+    // グラフの設定
+    let speedData = Array(20).fill(0);
+    let labels = Array(20).fill('');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Speed (Mbps)',
+                data: speedData,
+                borderColor: '#00d2ff',
+                backgroundColor: 'rgba(0, 210, 255, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true, grid: { color: '#30363d' } }, x: { display: false } },
+            plugins: { legend: { display: false } }
+        }
+    });
 
-    // 1. Ping / Jitter 測定
-    let pings = [];
-    for(let i=0; i<5; i++) {
-        const start = performance.now();
-        await fetch("https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js", { mode: 'no-cors', cache: 'no-store' });
-        pings.push(performance.now() - start);
-        await new Promise(r => setTimeout(r, 100));
-    }
-    const avgPing = pings.reduce((a,b)=>a+b)/pings.length;
-    pingEl.innerText = avgPing.toFixed(0);
-    jitterEl.innerText = Math.abs(pings[0] - pings[4]).toFixed(1);
+    // 計測メインループ
+    async function monitor() {
+        while (true) {
+            try {
+                const startTime = performance.now();
+                // 軽量なファイルをリクエストして速度を測る
+                const response = await fetch("https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?cache=" + Math.random(), { cache: "no-store" });
+                const blob = await response.blob();
+                const endTime = performance.now();
 
-    // 2. リアルタイム・ダウンロード測定
-    const testFile = "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?v=" + Date.now();
-    const response = await fetch(testFile);
-    const reader = response.body.getReader();
-    
-    let receivedBytes = 0;
-    const startTime = performance.now();
+                const duration = (endTime - startTime) / 1000;
+                const mbps = ( (blob.size * 8) / duration / 1000000 ).toFixed(1);
 
-    while(true) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        
-        receivedBytes += value.length;
-        const now = performance.now();
-        const duration = (now - startTime) / 1000;
-        
-        if (duration > 0) {
-            const mbps = ((receivedBytes * 8) / duration / 1000000).toFixed(1);
-            speedEl.innerText = mbps;
-            
-            // 針の回転 (0 to 100Mbps -> -90deg to 90deg)
-            const rotation = Math.min((mbps / 100) * 180 - 90, 90);
-            needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+                updateUI(parseFloat(mbps));
+            } catch (e) {
+                console.error("Connection lost");
+            }
+            // 1.5秒ごとに再計測（サーバー負荷を考慮しつつリアルタイム性を維持）
+            await new Promise(r => setTimeout(r, 1500));
         }
     }
-    
-    statusEl.innerText = "FINISHED";
-}
+
+    function updateUI(speed) {
+        // メーター更新
+        speedText.innerText = speed;
+        const maxDisplaySpeed = 100;
+        const rotation = Math.min((speed / maxDisplaySpeed) * 180 - 90, 90);
+        needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+
+        // グラフ更新
+        speedData.push(speed);
+        speedData.shift();
+        chart.update('none'); // アニメーションなしで高速更新
+    }
+
+    // 実行開始
+    monitor();
 </script>
 </body>
 </html>
