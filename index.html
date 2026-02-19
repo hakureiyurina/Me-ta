@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD Ultimate Custom</title>
+    <title>TRD Net-Detailed Cluster</title>
     <style>
         body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: 'Arial', sans-serif; overflow: hidden; }
-        canvas { background: radial-gradient(circle, #151515 0%, #000 100%); border: 2px solid #222; border-radius: 12px; max-width: 98vw; box-shadow: inset 0 0 100px rgba(0,0,0,1); }
+        canvas { background: radial-gradient(circle, #151515 0%, #000 100%); border: 2px solid #222; border-radius: 12px; max-width: 98vw; }
         .buttons { margin-top: 20px; display: flex; gap: 40px; }
-        button { padding: 12px 35px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; border: 2px solid #333; transition: 0.2s; background: #111; color: #666; }
+        button { padding: 12px 35px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; border: 2px solid #333; background: #111; color: #666; }
         #ignBtn.active { border-color: #0f0; color: #0f0; text-shadow: 0 0 10px #0f0; }
         #brBtn { width: 70px; height: 70px; border-radius: 50%; border: 4px solid #400; color: #500; }
         #brBtn.active { background: #f00; color: #fff; border-color: #ffaaaa; box-shadow: 0 0 30px #f00; }
@@ -34,14 +34,16 @@ let boost = false;
 let speed = 0, targetSpeed = 0;
 let rpm = 0, targetRpm = 0;
 let rtt = 0;
+let netType = "N/A";
 
-// データ同期
+// 0.5秒おきのネットワーク更新
 setInterval(() => {
     if (!running) return;
-    const n = navigator.connection || { downlink: 42, rtt: 40 };
+    const n = navigator.connection || { downlink: 42, rtt: 40, effectiveType: 'wifi' };
     targetSpeed = (n.downlink || 42) * (0.9 + Math.random() * 0.2);
     targetRpm = 800 + (targetSpeed * 40) + (Math.random() * 300);
-    rtt = n.rtt || 40;
+    rtt = n.rtt || 0;
+    netType = (n.effectiveType || "Wi-Fi").toUpperCase();
 }, 500);
 
 ignBtn.onclick = () => {
@@ -61,17 +63,19 @@ function draw() {
     // --- 1 & 2: メインメーター ---
     const sMax = boost ? 60 : 200;
     const sStep = boost ? 2.5 : 10;
-    drawMainGauge(ctx, 320, 240, 190, 0, sMax, speed, "Mbps", sStep, boost, "TRD");
+    drawMainGauge(ctx, 320, 240, 190, 0, sMax, speed, "Mbps", sStep, boost, "TRD SPEED");
     drawMainGauge(ctx, 720, 240, 190, 0, 8000, rpm, "x1000r/min", 1000, boost, "TACHO");
 
     // --- 左下: 時刻計 (ラフの「時刻」) ---
     drawDigitalBox(ctx, 60, 360, 130, 50, "CLOCK", getClock(), "#aaa");
 
-    // --- 右下: 3 (RTT) & 4 (TYPE) ---
-    drawDigitalBox(ctx, 750, 400, 110, 45, "RTT/ms", Math.floor(rtt), "#f90");
-    drawDigitalBox(ctx, 875, 400, 110, 45, "NET", (navigator.connection ? navigator.connection.effectiveType : "4G").toUpperCase(), "#0f0");
+    // --- 右下: 3 (RTT/ms) & 4 (NET TYPE) ---
+    // ラフの「3」の位置
+    drawDigitalBox(ctx, 720, 400, 120, 45, "RTT (PING)", rtt + " ms", "#f90");
+    // ラフの「4」の位置
+    drawDigitalBox(ctx, 855, 400, 120, 45, "NET TYPE", netType, "#0f0");
 
-    // --- 警告灯: 20以下で「BRAKE」点滅 (ラフの左側) ---
+    // --- 警告灯: 20以下で「BRAKE」点滅 ---
     let isWarning = (running && speed < 20) || !running;
     if (isWarning && Math.sin(Date.now()/150) > 0) {
         drawWarningLamp(ctx, 100, 180, "BRAKE", "( ! )", "#f00");
@@ -89,7 +93,6 @@ function drawMainGauge(ctx, x, y, r, min, max, val, unit, step, isB, title) {
     const start = 0.75 * Math.PI;
     const end = 2.25 * Math.PI;
 
-    // 目盛り
     for (let i = min; i <= max; i += step) {
         let ang = start + ((i - min) / (max - min)) * (end - start);
         let main = (i % (step * (isB ? 1 : 2)) === 0);
@@ -108,7 +111,6 @@ function drawMainGauge(ctx, x, y, r, min, max, val, unit, step, isB, title) {
         }
     }
 
-    // 針 (TRDオレンジ)
     let nAng = start + ((Math.min(val, max) - min) / (max - min)) * (end - start);
     ctx.shadowBlur = isB ? 20 : 0; ctx.shadowColor = "#f00";
     ctx.strokeStyle = isB ? "#fff" : "#ff4500";
@@ -119,15 +121,15 @@ function drawMainGauge(ctx, x, y, r, min, max, val, unit, step, isB, title) {
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = "#666"; ctx.font = "bold 22px Arial"; ctx.fillText(title, x, y - 50);
+    ctx.fillStyle = "#666"; ctx.font = "bold 20px Arial"; ctx.fillText(title, x, y - 50);
 }
 
 function drawDigitalBox(ctx, x, y, w, h, label, text, color) {
     ctx.fillStyle = "#0a0a0a"; ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = "#333"; ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = color; ctx.font = "bold 24px monospace"; ctx.textAlign = "center";
+    ctx.fillStyle = color; ctx.font = "bold 22px monospace"; ctx.textAlign = "center";
     ctx.fillText(text, x + w/2, y + h/2 + 8);
-    ctx.fillStyle = "#555"; ctx.font = "10px Arial"; ctx.fillText(label, x + w/2, y - 8);
+    ctx.fillStyle = "#555"; ctx.font = "9px Arial"; ctx.fillText(label, x + w/2, y - 8);
 }
 
 function drawWarningLamp(ctx, x, y, label, icon, color) {
