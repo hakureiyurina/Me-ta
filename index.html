@@ -3,140 +3,130 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boost Mode TRD Cluster</title>
+    <title>TRD Boost Custom</title>
     <style>
-        body { background: #050505; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: sans-serif; overflow: hidden; }
-        canvas { background: radial-gradient(circle, #1a1a1a 0%, #000 100%); border: 2px solid #444; border-radius: 15px; box-shadow: 0 0 30px rgba(255,0,0,0.2); max-width: 95vw; }
-        .controls { margin-top: 20px; display: flex; gap: 15px; align-items: center; }
-        button { padding: 12px 25px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; transition: 0.3s; border: none; }
-        #toggleBtn { background: #444; color: white; }
-        #toggleBtn.active { background: #00ff00; color: black; }
-        #boostBtn { background: #c00; color: white; box-shadow: 0 0 10px rgba(204,0,0,0.5); }
-        #boostBtn.active { background: #ffaa00; box-shadow: 0 0 20px #ffaa00; transform: scale(1.1); }
-        .status { margin-top: 10px; font-family: 'Courier New', monospace; color: #0f0; font-size: 13px; text-transform: uppercase; }
+        body { background: #050505; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: sans-serif; }
+        canvas { background: #000; border: 3px solid #333; border-radius: 20px; max-width: 95vw; box-shadow: 0 0 20px rgba(0,0,0,1); }
+        .ui-panel { margin-top: 20px; display: flex; gap: 20px; align-items: center; }
+        /* ブーストボタンをラフの「Br」サークル風に */
+        #boostBtn { 
+            width: 80px; height: 80px; border-radius: 50%; border: 4px solid #c00;
+            background: #200; color: #f00; font-weight: bold; font-size: 20px;
+            cursor: pointer; transition: 0.2s; box-shadow: 0 0 10px #c00;
+        }
+        #boostBtn.active { background: #f00; color: #fff; box-shadow: 0 0 30px #f00; transform: scale(1.1); }
+        #toggleBtn { padding: 10px 20px; background: #444; color: white; border: none; border-radius: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
 
-<canvas id="cluster" width="850" height="350"></canvas>
+<canvas id="cluster" width="850" height="400"></canvas>
 
-<div class="controls">
+<div class="ui-panel">
     <button id="toggleBtn">ENGINE START</button>
-    <button id="boostBtn">BOOST (SCAN)</button>
+    <button id="boostBtn">Br</button>
 </div>
-<div id="speedText" class="status">IDLE</div>
 
 <script>
 const canvas = document.getElementById('cluster');
 const ctx = canvas.getContext('2d');
 const btn = document.getElementById('toggleBtn');
 const boostBtn = document.getElementById('boostBtn');
-const statusText = document.getElementById('speedText');
 
 let isRunning = false;
 let isBoost = false;
 let currentMbps = 0, targetMbps = 0;
 let currentRpm = 0, targetRpm = 0;
 
-// データ更新処理
-function updateMetrics() {
+// データ更新 (0.5秒おき)
+function update() {
     if (!isRunning) return;
-
-    const conn = navigator.connection || { downlink: 45, rtt: 50 };
-    let baseSpeed = conn.downlink;
+    const conn = navigator.connection || { downlink: 40 };
+    let speed = conn.downlink || 40;
 
     if (isBoost) {
-        // ブースト中：より高速かつ、細かく激しく揺れる（詳細スキャン演出）
-        targetMbps = baseSpeed * 1.8 + (Math.random() * 30);
-        targetRpm = 6000 + (targetMbps * 10) + (Math.random() * 500);
-        statusText.innerText = `>> BOOST SCANNING: ${targetMbps.toFixed(3)} Mbps / RTT: ${conn.rtt}ms`;
+        targetMbps = speed * 1.5 + Math.random() * 20;
+        targetRpm = 5000 + (targetMbps * 20);
     } else {
-        // 通常時：安定した動き
-        targetMbps = baseSpeed;
+        targetMbps = speed;
         targetRpm = 1000 + (targetMbps * 30);
-        statusText.innerText = `NORMAL LINK: ${targetMbps.toFixed(1)} Mbps`;
     }
 }
+setInterval(update, 500);
 
-// ボタン制御
 btn.onclick = () => {
     isRunning = !isRunning;
-    btn.innerText = isRunning ? "ENGINE STOP" : "ENGINE START";
-    btn.classList.toggle('active');
-    if (isRunning) setInterval(updateMetrics, 500);
-    else { targetMbps = 0; targetRpm = 0; isBoost = false; boostBtn.classList.remove('active'); }
+    btn.innerText = isRunning ? "STOP" : "START";
+    if (!isRunning) { targetMbps = 0; targetRpm = 0; isBoost = false; boostBtn.classList.remove('active'); }
 };
 
-boostBtn.onclick = () => {
-    if (!isRunning) return;
-    isBoost = !isBoost;
-    boostBtn.classList.toggle('active');
-};
+boostBtn.onclick = () => { if(isRunning) { isBoost = !isBoost; boostBtn.classList.toggle('active'); } };
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 針の追従速度（ブースト時はレスポンスを速くする）
     let easing = isBoost ? 0.2 : 0.08;
     currentMbps += (targetMbps - currentMbps) * easing;
     currentRpm += (targetRpm - currentRpm) * easing;
 
-    // メーター描画
-    drawGauge(ctx, 220, 175, 150, 0, 240, currentMbps, "Mbps", "Wi-Fi SPEED");
-    drawGauge(ctx, 630, 175, 150, 0, 8000, currentRpm, "x1000r/min", "NETWORK LOAD");
+    // 左：スピードメーター（ラフの60, 100, 120を強調）
+    drawGauge(ctx, 240, 200, 160, 0, 240, currentMbps, "Mbps", isBoost);
+    
+    // 右：タコメーター（ラフの10, 20, 30, 40を強調 ※スケールを合わせるため1000倍表記）
+    drawGauge(ctx, 610, 200, 160, 0, 8000, currentRpm, "RPM", isBoost);
 
     requestAnimationFrame(draw);
 }
 
-function drawGauge(ctx, x, y, radius, min, max, value, unit, label) {
+function drawGauge(ctx, x, y, radius, min, max, value, label, boostMode) {
     const startAngle = 0.75 * Math.PI;
     const endAngle = 2.25 * Math.PI;
 
-    // ブースト時は背景を赤っぽく光らせる
-    if (isBoost) {
-        ctx.beginPath();
-        ctx.arc(x, y, radius, startAngle, endAngle);
-        ctx.strokeStyle = "rgba(255, 0, 0, 0.1)";
-        ctx.lineWidth = 15;
-        ctx.stroke();
-    }
+    // 外枠
+    ctx.strokeStyle = boostMode ? "#f00" : "#444";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, startAngle, endAngle);
+    ctx.stroke();
 
-    // 目盛り（ブースト時はより細かく描画）
-    let step = isBoost ? (max / 40) : (max / 8);
-    ctx.lineWidth = 1;
+    // 目盛り描画
+    let step = boostMode ? (max / 40) : (max / 8); 
     for (let i = min; i <= max; i += step) {
         let angle = startAngle + ((i - min) / (max - min)) * (endAngle - startAngle);
-        let isMain = i % (max/8) === 0;
-        ctx.strokeStyle = isMain ? "white" : "#555";
+        let isMain = i % (max / 8) === 0;
+        
+        ctx.strokeStyle = isMain ? "white" : "#333";
+        ctx.lineWidth = isMain ? 2 : 1;
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(angle) * (radius - (isMain ? 10 : 5)), y + Math.sin(angle) * (radius - (isMain ? 10 : 5)));
+        ctx.moveTo(x + Math.cos(angle) * (radius - (isMain ? 12 : 5)), y + Math.sin(angle) * (radius - (isMain ? 12 : 5)));
         ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
         ctx.stroke();
-        
+
         if (isMain) {
             ctx.fillStyle = "white";
-            ctx.font = "bold 14px Arial";
-            let tx = x + Math.cos(angle) * (radius - 25);
-            let ty = y + Math.sin(angle) * (radius - 25);
-            ctx.fillText(Math.floor(max === 8000 ? i/1000 : i), tx, ty);
+            ctx.font = "italic bold 16px Arial";
+            let tx = x + Math.cos(angle) * (radius - 35);
+            let ty = y + Math.sin(angle) * (radius - 35);
+            // ラフに基づいた数字の表示
+            let val = (max === 8000) ? i/100 : i; // 右側を10, 20, 30...風に
+            ctx.fillText(Math.floor(val), tx, ty);
         }
     }
 
     // 針
     let needleAngle = startAngle + ((value - min) / (max - min)) * (endAngle - startAngle);
-    ctx.shadowBlur = isBoost ? 15 : 5;
-    ctx.shadowColor = isBoost ? "#ff0000" : "#ff4500";
-    ctx.strokeStyle = isBoost ? "#ffaa00" : "#ff4500";
-    ctx.lineWidth = isBoost ? 5 : 4;
+    ctx.shadowBlur = boostMode ? 15 : 0;
+    ctx.shadowColor = "red";
+    ctx.strokeStyle = boostMode ? "#fff" : "#ff4500";
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(needleAngle) * (radius - 20), y + Math.sin(needleAngle) * (radius - 20));
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = "#888"; ctx.textAlign = "center";
-    ctx.font = "14px Arial"; ctx.fillText(label, x, y - 40);
-    ctx.fillText(unit, x, y + 65);
+    ctx.fillStyle = "#888";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x, y + 50);
 }
 
 draw();
