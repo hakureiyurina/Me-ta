@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD V6 300 Custom Pro</title>
+    <title>TRD Precise Scale 300</title>
     <style>
         body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        #container { position: relative; border: 4px solid #1a1a1a; border-radius: 20px; box-shadow: 0 0 100px #000; }
-        canvas { background: #010101; display: block; border-radius: 16px; }
+        #container { position: relative; border-radius: 20px; box-shadow: 0 0 100px #000; }
+        canvas { background: #010101; display: block; border-radius: 16px; border: 1px solid #111; }
         .buttons { margin-top: 25px; display: flex; gap: 30px; }
         button { background: #111; color: #555; border: 2px solid #333; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; }
         #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
-        #brBtn { width: 75px; height: 75px; border-radius: 50%; font-size: 20px; border: 4px solid #300; }
+        #brBtn { width: 75px; height: 75px; border-radius: 50%; border: 4px solid #300; }
         #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 30px #f00; }
     </style>
 </head>
@@ -36,7 +36,7 @@ let running = false, boost = false;
 let downMbps = 0, upMbps = 0, rtt = 0;
 let dispDown = 0, dispUp = 0;
 
-// --- ネットワーク計測 ---
+// --- ネットワーク計測（実測ベース） ---
 async function measure() {
     if (!running) return;
     const testUrl = "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?n=" + Date.now();
@@ -45,34 +45,29 @@ async function measure() {
         const res = await fetch(testUrl, { mode: 'cors' });
         const blob = await res.blob();
         const dur = Math.max((Date.now() - start) / 1000, 0.01);
-        // 300スケールで針がしっかり動くよう倍率を調整 (実測Mbps * 係数)
-        downMbps = (blob.size * 8 / dur) / 1000000 * 40; 
+        downMbps = (blob.size * 8 / dur) / 1000000 * 35; // 300スケール用に調整
         rtt = Math.floor(dur * 1000);
-        upMbps = downMbps * 0.5;
+        upMbps = downMbps * 0.45;
     } catch (e) {
         const n = navigator.connection || {};
-        downMbps = (n.downlink || 20) * 15;
+        downMbps = (n.downlink || 20) * 12;
+        rtt = n.rtt || 40;
         upMbps = downMbps * 0.4;
     }
 }
-setInterval(measure, 2000);
+setInterval(measure, 2500);
 
-// --- V6サウンド (3重オシレーター) ---
+// --- V6エンジンサウンド（3層合成） ---
 let audioCtx, v6nodes = [], masterGain;
-
 function initV6() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
     masterGain.connect(audioCtx.destination);
-    
-    // V6の唸りを出すための3層構造
-    [1, 1.503, 2.0].forEach(ratio => {
-        let osc = audioCtx.createOscillator();
-        osc.type = ratio === 2.0 ? 'triangle' : 'sawtooth';
-        osc.frequency.setValueAtTime(40 * ratio, audioCtx.currentTime);
-        osc.connect(masterGain);
-        osc.start();
-        v6nodes.push({osc, ratio});
+    [1, 1.503, 1.998].forEach(r => {
+        let o = audioCtx.createOscillator();
+        o.type = r > 1.8 ? 'triangle' : 'sawtooth';
+        o.connect(masterGain); o.start();
+        v6nodes.push({osc: o, ratio: r});
     });
     masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
 }
@@ -82,69 +77,68 @@ ignBtn.onclick = () => {
     running = !running;
     ignBtn.classList.toggle('active');
 };
-
 brBtn.onclick = () => { if(running) boost = !boost; brBtn.classList.toggle('active'); };
 
 function draw() {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    let ease = boost ? 0.15 : 0.04;
+    let ease = boost ? 0.18 : 0.05;
     dispDown += (downMbps - dispDown) * ease;
     dispUp += (upMbps - dispUp) * ease;
 
-    // V6サウンド更新
     if(audioCtx && running) {
-        const base = 35 + (dispDown / 300) * 130;
+        const base = 38 + (dispDown / 300) * 140;
         v6nodes.forEach(n => n.osc.frequency.setTargetAtTime(base * n.ratio, audioCtx.currentTime, 0.1));
-        masterGain.gain.setTargetAtTime(0.15 + (dispDown / 300) * 0.5, audioCtx.currentTime, 0.1);
+        masterGain.gain.setTargetAtTime(0.2 + (dispDown/300)*0.5, audioCtx.currentTime, 0.1);
     } else if(masterGain) {
         masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
     }
 
     ctx.save();
-    if(running) ctx.translate((Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5);
+    if(running) ctx.translate((Math.random()-0.5)*1.1, (Math.random()-0.5)*1.1);
 
-    // --- メーター描画 (300スケール・メモリ最適化) ---
-    drawTRD(ctx, 320, 240, 200, 300, dispDown, boost, "DOWNLOAD", "Mbps");
-    drawTRD(ctx, 730, 240, 200, 300, dispUp, boost, "UPLOAD", "Mbps");
+    // --- メーター描画（正確な20刻みメモリ） ---
+    drawTRD(ctx, 320, 240, 200, dispDown, boost, "DOWNLOAD", "Mbps");
+    drawTRD(ctx, 730, 240, 200, dispUp, boost, "UPLOAD", "Mbps");
 
-    // デジタルセクション
-    drawBox(ctx, 60, 380, 140, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
-    drawBox(ctx, 750, 410, 120, "PING", rtt + "ms", "#f70");
-    drawBox(ctx, 885, 410, 120, "V6 ENG", (running ? "RUNNING" : "STOP"), "#0f0");
+    // デジタルセクション（3番と4番を正確に配置）
+    drawBox(ctx, 60, 385, 130, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
+    drawBox(ctx, 720, 410, 120, "RTT (3)", rtt + "ms", "#f90");
+    drawBox(ctx, 855, 410, 120, "TYPE (4)", (navigator.connection?.effectiveType || "WiFi").toUpperCase(), "#0f0");
 
-    // BRAKE点滅
+    // 警告灯
     if((running && dispDown < 20) || !running) {
-        if(Math.sin(Date.now()/150) > 0) drawWarning(ctx, 110, 180, "BRAKE");
+        if(Math.sin(Date.now()/150) > 0) drawWarning(ctx, 105, 185, "BRAKE");
     }
 
     ctx.restore();
     requestAnimationFrame(draw);
 }
 
-function drawTRD(ctx, x, y, r, max, val, isB, title, unit) {
+function drawTRD(ctx, x, y, r, val, isB, title, unit) {
     const start = 0.75 * Math.PI, end = 2.25 * Math.PI;
-    
-    // 目盛り：300までをスッキリさせるため、大きな目盛りを40刻みに
-    for (let i = 0; i <= max; i += 10) {
-        let ang = start + (i / max) * (end - start);
-        let isMain = (i % 40 === 0); // 40, 80...で数字を表示
-        ctx.strokeStyle = isMain ? "#eee" : "#222";
+    const maxVal = 300;
+
+    // 正確なメモリ（0, 20, 40...300）
+    for (let i = 0; i <= maxVal; i += 10) {
+        let ang = start + (i / maxVal) * (end - start);
+        let isMain = (i % 20 === 0); // 画像通り20刻み
+        ctx.strokeStyle = isMain ? "#eee" : "#333";
         ctx.lineWidth = isMain ? 3 : 1;
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(ang)*(r-(isMain?20:10)), y + Math.sin(ang)*(r-(isMain?20:10)));
+        ctx.moveTo(x + Math.cos(ang)*(r-(isMain?18:8)), y + Math.sin(ang)*(r-(isMain?18:8)));
         ctx.lineTo(x + Math.cos(ang)*r, y + Math.sin(ang)*r);
         ctx.stroke();
 
         if (isMain) {
-            ctx.fillStyle = running ? "#fff" : "#333";
-            ctx.font = `italic bold 20px Arial`;
+            ctx.fillStyle = running ? "#fff" : "#444";
+            ctx.font = `italic bold 18px Arial`;
             ctx.textAlign = "center";
-            ctx.fillText(i, x + Math.cos(ang)*(r-45), y + Math.sin(ang)*(r-45));
+            ctx.fillText(i, x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
         }
     }
 
-    // 針の描画 (残像エフェクト付き)
-    let nAng = start + (Math.min(val, max) / max) * (end - start);
+    // 針の描画（TRDオレンジ）
+    let nAng = start + (Math.min(val, maxVal) / maxVal) * (end - start);
     ctx.shadowBlur = running ? 20 : 0; 
     ctx.shadowColor = isB ? "#fff" : "#f40";
     ctx.strokeStyle = isB ? "#fff" : "#ff4500";
@@ -154,23 +148,27 @@ function drawTRD(ctx, x, y, r, max, val, isB, title, unit) {
     ctx.stroke();
     ctx.shadowBlur = 0;
     
-    // センター
+    // センターキャップ
     ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#666"; ctx.font = "bold 18px Arial"; ctx.fillText(title, x, y - 50);
+    ctx.strokeStyle = "#222"; ctx.stroke();
+    
+    // タイトル
+    ctx.fillStyle = "#555"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center";
+    ctx.fillText(title, x, y - 50);
 }
 
 function drawBox(ctx, x, y, w, label, val, col) {
     ctx.fillStyle = "#050505"; ctx.fillRect(x, y, w, 45);
     ctx.strokeStyle = "#222"; ctx.strokeRect(x, y, w, 45);
     ctx.fillStyle = running ? col : "#222";
-    ctx.font = "bold 20px monospace"; ctx.textAlign = "center";
+    ctx.font = "bold 21px monospace"; ctx.textAlign = "center";
     ctx.fillText(val, x + w/2, y + 32);
     ctx.fillStyle = "#444"; ctx.font = "9px Arial"; ctx.fillText(label, x + w/2, y - 8);
 }
 
 function drawWarning(ctx, x, y, txt) {
-    ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x,y,18,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 9px Arial"; ctx.textAlign = "center"; ctx.fillText(txt, x, y + 35);
+    ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 9px Arial"; ctx.textAlign = "center"; ctx.fillText(txt, x, y + 32);
 }
 
 draw();
