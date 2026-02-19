@@ -2,164 +2,107 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>AE86 Digital Speed Monitor</title>
+    <title>TRD Style Cluster Simulation</title>
     <style>
-        /* 80年代デジタル風のフォント */
-        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-
-        body {
-            background-color: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            font-family: 'Share Tech Mono', monospace;
-        }
-
-        /* メーターパネル全体 */
-        .cluster {
-            width: 600px;
-            background: #111;
-            padding: 40px;
-            border: 4px solid #333;
-            border-radius: 5px;
-            position: relative;
-            box-shadow: 0 0 50px rgba(0,0,0,1), inset 0 0 20px #000;
-        }
-
-        /* AE86特有のオレンジ（アンバー）色 */
-        .amber { color: #ff9d00; text-shadow: 0 0 10px #ff9d00; }
-
-        /* 横長タコメーター（速度バー） */
-        .tacho-container {
-            display: flex;
-            align-items: flex-end;
-            height: 50px;
-            gap: 3px;
-            margin-bottom: 20px;
-            border-bottom: 3px solid #ff9d00;
-            padding-bottom: 5px;
-        }
-
-        .bar {
-            flex: 1;
-            background: #221500; /* 消灯時 */
-            height: var(--h);
-        }
-
-        .bar.active {
-            background: #ff9d00;
-            box-shadow: 0 0 10px #ff9d00;
-        }
-
-        /* 速度表示エリア */
-        .display-main {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-        }
-
-        .label { font-size: 1.2rem; line-height: 1; }
-        
-        .speed-num {
-            font-size: 8rem;
-            line-height: 0.8;
-            letter-spacing: -5px;
-        }
-
-        .unit { font-size: 2rem; margin-left: 10px; }
-
-        /* 装飾的な文字 */
-        .branding {
-            position: absolute;
-            top: 15px;
-            right: 20px;
-            font-size: 0.8rem;
-            opacity: 0.6;
-            text-align: right;
-        }
+        body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: white; font-family: sans-serif; }
+        canvas { background: #000; border: 5px solid #333; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .controls { position: absolute; bottom: 20px; text-align: center; width: 100%; }
     </style>
 </head>
 <body>
 
-<div class="cluster">
-    <div class="branding amber">TOYOTA<br>NET-MONITOR SYSTEM 4A-GE</div>
-    
-    <div class="tacho-container" id="tacho"></div>
+<canvas id="cluster" width="800" height="350"></canvas>
 
-    <div class="display-main amber">
-        <div class="label">SPEED<br>Mbps</div>
-        <div style="display: flex; align-items: baseline;">
-            <div class="speed-num" id="speed">00</div>
-            <div class="unit" id="decimal">.0</div>
-        </div>
-    </div>
+<div class="controls">
+    <p>アクセル（画面クリック）で加速・回転数アップ</p>
 </div>
 
 <script>
-    // 1. バーメーターを35本生成
-    const tacho = document.getElementById('tacho');
-    const barCount = 35;
-    for (let i = 0; i < barCount; i++) {
-        const bar = document.createElement('div');
-        bar.className = 'bar';
-        // 右に行くほど少しずつ高くする（AE86のタコメーター風）
-        bar.style.setProperty('--h', `${30 + (i * 2)}%`);
-        tacho.appendChild(bar);
+const canvas = document.getElementById('cluster');
+const ctx = canvas.getContext('2d');
+
+let speed = 0;
+let rpm = 0;
+let isAccelerating = false;
+
+// イベントリスナー
+window.onmousedown = () => isAccelerating = true;
+window.onmouseup = () => isAccelerating = false;
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 背景の描画
+    drawGauge(ctx, 200, 175, 140, 0, 240, speed, "km/h", "TRD");
+    drawGauge(ctx, 600, 175, 140, 0, 8, rpm, "x1000r/min", "");
+
+    // ロジック更新
+    if (isAccelerating) {
+        speed += 0.5;
+        rpm += 0.05;
+        if (speed > 240) speed = 240;
+        if (rpm > 8) rpm = 7.8 + Math.random() * 0.2; // レブリミット付近で振れる
+    } else {
+        speed -= 0.3;
+        rpm -= 0.08;
+        if (speed < 0) speed = 0;
+        if (rpm < 0.8) rpm = 0.8; // アイドリング
     }
 
-    const bars = document.querySelectorAll('.bar');
-    const speedEl = document.getElementById('speed');
-    const decimalEl = document.getElementById('decimal');
+    requestAnimationFrame(draw);
+}
 
-    // 2. 通信用ダミーファイル生成（CORSエラー回避用）
-    const dummyBlob = new Blob([new Uint8Array(1024 * 1024 * 1)], { type: 'application/octet-stream' }); // 1MB
-    const testUrl = URL.createObjectURL(dummyBlob);
+function drawGauge(ctx, x, y, radius, min, max, value, unit, label) {
+    // 外枠
+    ctx.beginPath();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.arc(x, y, radius, 0.75 * Math.PI, 2.25 * Math.PI);
+    ctx.stroke();
 
-    // 3. 0.25秒ごとの計測ループ
-    async function measure() {
-        while (true) {
-            const start = performance.now();
-            try {
-                const res = await fetch(testUrl + "?t=" + start);
-                const data = await res.arrayBuffer();
-                const end = performance.now();
-                
-                const duration = (end - start) / 1000;
-                // 内部通信は速すぎるので、現実的なネット速度（10-100Mbps）に見えるよう調整
-                let mbps = ((data.byteLength * 8) / duration / 1000000) / 20; 
-                // リアルな揺らぎを追加
-                mbps = mbps + (Math.random() * 10 - 5);
-                if (mbps < 0) mbps = 0;
+    // 目盛り（簡略化）
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "white";
+    ctx.font = "bold 16px Arial";
 
-                updateUI(mbps);
-            } catch (e) {
-                console.error(e);
-            }
-            // 250ms（0.25秒）待機
-            await new Promise(r => setTimeout(r, 250));
-        }
-    }
-
-    function updateUI(val) {
-        const integer = Math.floor(val);
-        const decimal = (val % 1).toFixed(1).substring(1);
+    for (let i = min; i <= max; i += (max / 10)) {
+        let angle = 0.75 * Math.PI + (i / max) * 1.5 * Math.PI;
+        let x1 = x + Math.cos(angle) * (radius - 10);
+        let y1 = y + Math.sin(angle) * (radius - 10);
+        let tx = x + Math.cos(angle) * (radius - 30);
+        let ty = y + Math.sin(angle) * (radius - 30);
         
-        // メイン数字を更新（2桁固定）
-        speedEl.innerText = integer.toString().padStart(2, '0');
-        decimalEl.innerText = decimal;
-
-        // バーメーターの更新 (100Mbpsをフルスケールとする)
-        const activeLimit = Math.min(Math.floor((val / 100) * barCount), barCount);
-        bars.forEach((bar, i) => {
-            if (i < activeLimit) bar.classList.add('active');
-            else bar.classList.remove('active');
-        });
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+        ctx.stroke();
+        ctx.fillText(Math.floor(i), tx, ty);
     }
 
-    measure();
-</script>
+    // 単位とロゴ
+    ctx.font = "14px Arial";
+    ctx.fillText(unit, x, y + 60);
+    ctx.font = "bold 20px Arial";
+    ctx.fillText(label, x, y - 40);
 
+    // 針
+    let needleAngle = 0.75 * Math.PI + (value / max) * 1.5 * Math.PI;
+    ctx.beginPath();
+    ctx.strokeStyle = "#ffae00"; // オレンジ色の針
+    ctx.lineWidth = 4;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(needleAngle) * (radius - 20), y + Math.sin(needleAngle) * (radius - 20));
+    ctx.stroke();
+    
+    // 針のセンターキャップ
+    ctx.beginPath();
+    ctx.arc(x, y, 10, 0, 2 * Math.PI);
+    ctx.fillStyle = "#222";
+    ctx.fill();
+}
+
+draw();
+</script>
 </body>
 </html>
