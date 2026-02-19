@@ -1,118 +1,48 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Speedometer Pro - 0.25s High-Speed</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>Speed Monitor</title>
     <style>
-        :root { --neon: #00ff41; --bg: #0d0d0d; }
-        body { background: var(--bg); color: #fff; font-family: 'Share Tech Mono', monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        
-        /* メーター */
-        .gauge { position: relative; width: 300px; height: 180px; background: #1a1a1a; border-radius: 150px 150px 20px 20px; border: 2px solid #333; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 20px; overflow: hidden; }
-        .needle { position: absolute; bottom: 30px; left: 50%; width: 3px; height: 110px; background: #ff3e3e; transform-origin: bottom center; transform: translateX(-50%) rotate(-90deg); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); z-index: 5; box-shadow: 0 0 10px #ff3e3e; }
-        .hub { position: absolute; bottom: 20px; left: 50%; width: 20px; height: 20px; background: #555; border-radius: 50%; transform: translateX(-50%); z-index: 6; }
-        .speed-text { font-size: 4.5rem; font-weight: bold; color: var(--neon); text-shadow: 0 0 15px var(--neon); z-index: 10; margin-bottom: -10px; }
-        .unit { font-size: 1rem; color: #888; z-index: 10; margin-bottom: 10px; }
-
-        /* グラフ */
-        .graph-container { width: 90%; max-width: 600px; height: 150px; margin-top: 20px; background: #111; padding: 10px; border-radius: 10px; border: 1px solid #333; }
-        
-        .status { margin-top: 15px; font-size: 0.8rem; color: var(--neon); letter-spacing: 2px; }
-        .blink { animation: flash 0.5s step-end infinite; }
-        @keyframes flash { 50% { opacity: 0; } }
+        body { background: #000; color: #0f0; font-family: sans-serif; text-align: center; padding-top: 50px; }
+        /* 枠 */
+        .gauge {
+            width: 250px; height: 130px; border: 5px solid #333; 
+            border-radius: 150px 150px 0 0; margin: 0 auto;
+            position: relative; overflow: hidden; background: #111;
+        }
+        /* 針 */
+        .needle {
+            width: 4px; height: 100px; background: red;
+            position: absolute; bottom: 0; left: 50%;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-90deg);
+            transition: transform 0.25s; /* 0.25秒で動く */
+        }
+        .speed { font-size: 50px; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <div class="status"><span class="blink">▶</span> MONITORING_ACTIVE [INTERVAL: 0.25s]</div>
-
     <div class="gauge">
         <div class="needle" id="needle"></div>
-        <div class="hub"></div>
-        <div class="speed-text" id="speed-val">0.0</div>
-        <div class="unit">Mbps (Internal Sample)</div>
     </div>
+    <div class="speed" id="val">0</div>
+    <div>Mbps</div>
 
-    <div class="graph-container">
-        <canvas id="speedChart"></canvas>
-    </div>
-
-<script>
-    const speedEl = document.getElementById('speed-val');
-    const needle = document.getElementById('needle');
+    <script>
+        // 0.25秒ごとに「勝手に」数字を作って動かす設定
+        setInterval(() => {
+            // 40〜60の間で適当に数字を作る（ネット速度っぽく）
+            let mockSpeed = (Math.random() * 20 + 40).toFixed(1);
+            
+            // 数字を表示
+            document.getElementById('val').innerText = mockSpeed;
+            
+            // 針を動かす（角度計算）
+            let angle = (mockSpeed / 100) * 180 - 90;
+            document.getElementById('needle').style.transform = `translateX(-50%) rotate(${angle}deg)`;
+        }, 250); // 250ミリ秒 ＝ 0.25秒
+    </script>
     
-    // グラフの設定
-    let chartData = Array(40).fill(0);
-    const ctx = document.getElementById('speedChart').getContext('2d');
-    const chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: Array(40).fill(''),
-            datasets: [{
-                data: chartData,
-                borderColor: '#00ff41',
-                borderWidth: 2,
-                pointRadius: 0,
-                fill: true,
-                backgroundColor: 'rgba(0, 255, 65, 0.1)',
-                tension: 0.3
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
-            scales: {
-                y: { min: 0, max: 200, grid: { color: '#222' }, ticks: { display: false } },
-                x: { display: false }
-            },
-            plugins: { legend: { display: false } }
-        }
-    });
-
-    // ダミーデータの生成（CORS制限を回避するため）
-    const dummySize = 1024 * 1024 * 2; // 2MB
-    const dummyData = new Uint8Array(dummySize);
-    const blob = new Blob([dummyData], { type: 'application/octet-stream' });
-    const testUrl = URL.createObjectURL(blob);
-
-    async function startMonitoring() {
-        while (true) {
-            const loopStart = performance.now();
-            try {
-                const startTime = performance.now();
-                const response = await fetch(testUrl + "?t=" + startTime);
-                const data = await response.arrayBuffer();
-                const endTime = performance.now();
-
-                const duration = (endTime - startTime) / 1000;
-                // リアルなWiFi速度っぽく見せるため、少しランダムな揺らぎを加算
-                const rawSpeed = (data.byteLength * 8) / duration / 1000000;
-                const jitter = (Math.random() * 10) - 5; 
-                const speedMbps = Math.max(0, rawSpeed + jitter);
-
-                updateUI(speedMbps);
-            } catch (e) {
-                console.error(e);
-            }
-            const elapsed = performance.now() - loopStart;
-            await new Promise(r => setTimeout(r, Math.max(0, 250 - elapsed)));
-        }
-    }
-
-    function updateUI(mbps) {
-        speedEl.innerText = mbps.toFixed(1);
-        // メーターの角度（0~200Mbps想定）
-        const rotation = Math.min((mbps / 200) * 180 - 90, 90);
-        needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
-
-        chartData.push(mbps);
-        chartData.shift();
-        chart.update('none');
-    }
-
-    startMonitoring();
-</script>
 </body>
 </html>
