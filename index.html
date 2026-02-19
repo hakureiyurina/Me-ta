@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wi-Fi Speed TRD Cluster</title>
+    <title>0.5s Realtime TRD Cluster</title>
     <style>
         body { background: #050505; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #eee; font-family: sans-serif; overflow: hidden; }
-        canvas { background: radial-gradient(circle, #1a1a1a 0%, #000 100%); border: 2px solid #333; border-radius: 15px; max-width: 90vw; max-height: 60vh; }
+        canvas { background: radial-gradient(circle, #1a1a1a 0%, #000 100%); border: 2px solid #333; border-radius: 15px; max-width: 95vw; }
         .controls { margin-top: 20px; text-align: center; }
-        button { padding: 15px 30px; font-size: 18px; font-weight: bold; background: #0066cc; color: white; border: none; border-radius: 8px; cursor: pointer; }
-        button:active { transform: scale(0.98); background: #0055aa; }
-        .status { margin-top: 15px; font-family: monospace; color: #00ff00; height: 20px; text-shadow: 0 0 5px #00ff00; }
+        button { padding: 12px 25px; font-size: 16px; font-weight: bold; background: #c00; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button.active { background: #00ff00; color: black; }
+        .status { margin-top: 10px; font-family: 'Courier New', monospace; color: #0f0; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -18,60 +18,64 @@
 <canvas id="cluster" width="850" height="350"></canvas>
 
 <div class="controls">
-    <button id="testBtn">Wi-Fiをスキャンして加速</button>
-    <div id="speedText" class="status">SYSTEM READY</div>
+    <button id="toggleBtn">START ENGINE</button>
+    <div id="speedText" class="status">SYSTEM IDLE</div>
 </div>
 
 <script>
 const canvas = document.getElementById('cluster');
 const ctx = canvas.getContext('2d');
-const btn = document.getElementById('testBtn');
+const btn = document.getElementById('toggleBtn');
 const statusText = document.getElementById('speedText');
 
+let isRunning = false;
 let currentMbps = 0;
 let targetMbps = 0;
-let currentRpm = 800;
-let targetRpm = 800;
+let currentRpm = 0;
+let targetRpm = 0;
+let intervalId = null;
 
-// メインの計測ロジック
-function measureSpeed() {
-    btn.disabled = true;
-    statusText.innerText = "SCANNING NETWORK...";
+// 0.5秒ごとに実行されるデータ更新処理
+function updateMetrics() {
+    if (!isRunning) return;
 
-    // 1. ブラウザが持っている通信情報を取得（もしあれば）
-    let connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    let baseSpeed = connection ? connection.downlink : 50; // デフォルト50Mbps
+    // ブラウザのConnection APIから速度を取得（取得できない場合はランダムに揺らす）
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    let newSpeed = conn ? conn.downlink : (Math.random() * 50 + 20);
+    
+    // 0.5秒ごとのリアルタイムな変動を演出
+    targetMbps = newSpeed * (0.9 + Math.random() * 0.2); 
+    targetRpm = 1000 + (targetMbps * 40) + (Math.random() * 200);
 
-    // 2. 演出用の加速（一気に針を振る）
-    targetMbps = baseSpeed * 1.5 + Math.random() * 20;
-    targetRpm = 6500 + Math.random() * 1000;
-
-    // 3. 2秒後に安定させる
-    setTimeout(() => {
-        targetMbps = baseSpeed + Math.random() * 10;
-        targetRpm = 3000 + (targetMbps * 20);
-        statusText.innerText = `LINK SPEED: ${targetMbps.toFixed(1)} Mbps`;
-    }, 1500);
-
-    // 4. 5秒後にアイドリングに戻す
-    setTimeout(() => {
-        targetMbps = 0;
-        targetRpm = 800;
-        btn.disabled = false;
-        statusText.innerText = "READY";
-    }, 5000);
+    statusText.innerText = `REALTIME: ${targetMbps.toFixed(2)} Mbps / Ping: ${conn ? conn.rtt : '--'}ms`;
 }
 
-btn.onclick = measureSpeed;
+// ボタン切り替え
+btn.onclick = () => {
+    isRunning = !isRunning;
+    if (isRunning) {
+        btn.innerText = "STOP ENGINE";
+        btn.classList.add('active');
+        // 0.5秒(500ms)間隔で更新開始
+        intervalId = setInterval(updateMetrics, 500);
+    } else {
+        btn.innerText = "START ENGINE";
+        btn.classList.remove('active');
+        clearInterval(intervalId);
+        targetMbps = 0;
+        targetRpm = 0;
+        statusText.innerText = "SYSTEM IDLE";
+    }
+};
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // 針の物理挙動（ヌルヌル動かす）
-    currentMbps += (targetMbps - currentMbps) * 0.05;
-    currentRpm += (targetRpm - currentRpm) * 0.07;
+    // 描画は60fpsで滑らかに（針の動きを遅延させることで機械的な質感を出す）
+    currentMbps += (targetMbps - currentMbps) * 0.1;
+    currentRpm += (targetRpm - currentRpm) * 0.15;
 
-    drawGauge(ctx, 220, 175, 150, 0, 240, currentMbps, "km/h (Mbps)", "TRD");
+    drawGauge(ctx, 220, 175, 150, 0, 240, currentMbps, "Mbps (Speed)", "Wi-Fi");
     drawGauge(ctx, 630, 175, 150, 0, 8000, currentRpm, "x1000r/min", "TACHO");
 
     requestAnimationFrame(draw);
@@ -81,56 +85,48 @@ function drawGauge(ctx, x, y, radius, min, max, value, unit, label) {
     const startAngle = 0.75 * Math.PI;
     const endAngle = 2.25 * Math.PI;
 
-    // 背景の円弧
+    // メモリ
     ctx.strokeStyle = "#444";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(x, y, radius, startAngle, endAngle);
     ctx.stroke();
 
-    // 目盛りと数字
     for (let i = min; i <= max; i += (max / 8)) {
         let angle = startAngle + ((i - min) / (max - min)) * (endAngle - startAngle);
         ctx.strokeStyle = "white";
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(angle) * (radius - 5), y + Math.sin(angle) * (radius - 5));
+        ctx.moveTo(x + Math.cos(angle) * (radius - 10), y + Math.sin(angle) * (radius - 10));
         ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
         ctx.stroke();
         
         ctx.fillStyle = "white";
-        ctx.font = "bold 14px Arial";
+        ctx.font = "bold 15px Arial";
         ctx.textAlign = "center";
-        let tx = x + Math.cos(angle) * (radius - 25);
-        let ty = y + Math.sin(angle) * (radius - 25);
+        let tx = x + Math.cos(angle) * (radius - 30);
+        let ty = y + Math.sin(angle) * (radius - 30);
         ctx.fillText(Math.floor(max === 8000 ? i/1000 : i), tx, ty);
     }
 
-    // 針 (AE86 TRD風オレンジ)
+    // 針
     let needleAngle = startAngle + ((value - min) / (max - min)) * (endAngle - startAngle);
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = "rgba(255, 69, 0, 0.6)";
     ctx.strokeStyle = "#ff4500";
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 4;
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(needleAngle) * (radius - 20), y + Math.sin(needleAngle) * (radius - 20));
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
-    // センターピン
     ctx.beginPath();
     ctx.arc(x, y, 10, 0, Math.PI * 2);
     ctx.fillStyle = "#111";
     ctx.fill();
-    ctx.strokeStyle = "#444";
-    ctx.stroke();
 
     ctx.fillStyle = "#888";
-    ctx.font = "16px Arial";
-    ctx.fillText(label, x, y - 40);
-    ctx.font = "12px Arial";
-    ctx.fillText(unit, x, y + 60);
+    ctx.font = "14px Arial";
+    ctx.fillText(label, x, y - 45);
+    ctx.fillText(unit, x, y + 65);
 }
 
 draw();
