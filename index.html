@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD 1/100 Precision Cluster</title>
+    <title>TRD 500 Scale Precision</title>
     <style>
         body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        #container { position: relative; border-radius: 20px; box-shadow: 0 0 100px #000; }
-        canvas { background: #010101; display: block; border-radius: 16px; border: 1px solid #111; }
+        #container { position: relative; border-radius: 20px; box-shadow: 0 0 120px #000; }
+        canvas { background: #010101; display: block; border-radius: 16px; border: 1px solid #151515; }
         .buttons { margin-top: 25px; display: flex; gap: 30px; }
-        button { background: #111; color: #555; border: 2px solid #333; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
+        button { background: #111; color: #555; border: 2px solid #333; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 20px rgba(255,0,0,0.3); }
         #brBtn { width: 75px; height: 75px; border-radius: 50%; border: 4px solid #300; }
-        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 30px #f00; }
+        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 35px #f00; }
     </style>
 </head>
 <body>
 
 <div id="container">
-    <canvas id="cluster" width="1050" height="480"></canvas>
+    <canvas id="cluster" width="1050" height="500"></canvas>
 </div>
 
 <div class="buttons">
@@ -36,43 +36,39 @@ let running = false, boost = false;
 let downMbps = 0, upMbps = 0, rtt = 0;
 let dispDown = 0, dispUp = 0;
 
-// --- ネットワーク計測 (1/100 単位変換) ---
+// --- 1/100 高感度計測 (500スケール対応) ---
 async function fetchSpeed() {
     if (!running) return;
     const testUrl = "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?n=" + Date.now();
-    
     try {
         const start = performance.now();
         const response = await fetch(testUrl, { mode: 'cors', cache: 'no-store' });
         const blob = await response.blob();
         const end = performance.now();
+        const dur = (end - start) / 1000;
+        const realMbps = (blob.size * 8 / dur) / 1000000;
         
-        const durationSeconds = (end - start) / 1000;
-        const realMbps = (blob.size * 8 / durationSeconds) / 1000000;
-        
-        // 単位を100分の1にする (メーターの100 = 1Mbps)
-        downMbps = realMbps * 100; 
+        downMbps = realMbps * 100; // 100 = 1Mbps
         rtt = Math.floor(end - start);
-        upMbps = downMbps * 0.4;
-        
+        upMbps = downMbps * 0.5;
     } catch (e) {
         const conn = navigator.connection || {};
         downMbps = (conn.downlink || 0) * 100;
         rtt = conn.rtt || 0;
-        upMbps = downMbps * 0.3;
+        upMbps = downMbps * 0.4;
     }
 }
 setInterval(fetchSpeed, 2000);
 
-// --- V6 サウンドエンジン ---
+// --- V6 超高回転サウンドエンジン ---
 let audioCtx, v6nodes = [], masterGain;
 function initV6() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
     masterGain.connect(audioCtx.destination);
-    [1, 1.505, 2.01].forEach(r => {
+    [1, 1.502, 2.0, 3.01].forEach(r => {
         let o = audioCtx.createOscillator();
-        o.type = (r > 2) ? 'triangle' : 'sawtooth';
+        o.type = (r >= 2) ? 'triangle' : 'sawtooth';
         o.connect(masterGain); o.start();
         v6nodes.push({osc: o, ratio: r});
     });
@@ -88,76 +84,78 @@ brBtn.onclick = () => { if(running) boost = !boost; brBtn.classList.toggle('acti
 
 function draw() {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // 100倍感度なので針が激しく動くのをスムーズに補正
-    let ease = boost ? 0.3 : 0.05;
+    let ease = boost ? 0.35 : 0.04;
     dispDown += (downMbps - dispDown) * ease;
     dispUp += (upMbps - dispUp) * ease;
 
     if(audioCtx && running) {
-        const baseFreq = 40 + (Math.min(dispDown, 300) / 300) * 160;
+        // 500スケールに合わせた周波数可変
+        const baseFreq = 35 + (Math.min(dispDown, 500) / 500) * 220;
         v6nodes.forEach(n => n.osc.frequency.setTargetAtTime(baseFreq * n.ratio, audioCtx.currentTime, 0.1));
-        masterGain.gain.setTargetAtTime(0.2 + (Math.min(dispDown, 300)/300)*0.5, audioCtx.currentTime, 0.1);
+        masterGain.gain.setTargetAtTime(0.2 + (Math.min(dispDown, 500)/500)*0.6, audioCtx.currentTime, 0.1);
     } else if(masterGain) {
         masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
     }
 
     ctx.save();
-    if(running) ctx.translate((Math.random()-0.5)*1.2, (Math.random()-0.5)*1.2);
+    if(running) ctx.translate((Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5);
 
-    // --- メーター描画（1=0.01Mbps スケール） ---
-    drawTRD(ctx, 320, 240, 200, dispDown, boost, "DOWN (x100 Sens)");
-    drawTRD(ctx, 730, 240, 200, dispUp, boost, "UP (x100 Sens)");
+    // --- メーター描画（正確な500スケール） ---
+    drawTRD500(ctx, 320, 250, 210, dispDown, boost, "DOWNLOAD");
+    drawTRD500(ctx, 730, 250, 210, dispUp, boost, "UPLOAD");
 
     // デジタル 3・4番
-    drawBox(ctx, 60, 385, 130, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
-    drawBox(ctx, 720, 410, 120, "PING (3)", rtt + "ms", "#f90");
-    drawBox(ctx, 855, 410, 120, "REAL Mbps (4)", (downMbps/100).toFixed(2), "#0f0");
+    drawBox(ctx, 60, 400, 130, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
+    drawBox(ctx, 720, 420, 120, "PING (3)", rtt + "ms", "#f90");
+    drawBox(ctx, 855, 420, 120, "REAL Mbps (4)", (downMbps/100).toFixed(2), "#0f0");
 
-    // BRAKE (0.2Mbps = メーター20以下)
+    // BRAKE (低速警告)
     if((running && dispDown < 20) || !running) {
-        if(Math.sin(Date.now()/150) > 0) drawWarning(ctx, 105, 185, "BRAKE");
+        if(Math.sin(Date.now()/150) > 0) drawWarning(ctx, 105, 190, "BRAKE");
     }
 
     ctx.restore();
     requestAnimationFrame(draw);
 }
 
-function drawTRD(ctx, x, y, r, val, isB, title) {
+function drawTRD500(ctx, x, y, r, val, isB, title) {
     const start = 0.75 * Math.PI, end = 2.25 * Math.PI;
-    const maxVal = 300;
+    const maxVal = 500;
 
+    // メモリ設計: 50刻みで数字、10刻みでライン
     for (let i = 0; i <= maxVal; i += 10) {
         let ang = start + (i / maxVal) * (end - start);
-        let isMain = (i % 20 === 0);
-        ctx.strokeStyle = isMain ? "#eee" : "#333";
+        let isMain = (i % 50 === 0);
+        let isSub = (i % 10 === 0);
+        ctx.strokeStyle = isMain ? "#eee" : (isSub ? "#333" : "#1a1a1a");
         ctx.lineWidth = isMain ? 3 : 1;
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(ang)*(r-(isMain?20:10)), y + Math.sin(ang)*(r-(isMain?20:10)));
+        ctx.moveTo(x + Math.cos(ang)*(r-(isMain?22:10)), y + Math.sin(ang)*(r-(isMain?22:10)));
         ctx.lineTo(x + Math.cos(ang)*r, y + Math.sin(ang)*r);
         ctx.stroke();
 
         if (isMain) {
             ctx.fillStyle = running ? "#fff" : "#444";
-            ctx.font = `italic bold 17px Arial`;
+            ctx.font = `italic bold 16px Arial`;
             ctx.textAlign = "center";
-            ctx.fillText(i, x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
+            ctx.fillText(i, x + Math.cos(ang)*(r-45), y + Math.sin(ang)*(r-45));
         }
     }
 
+    // 針 (500スケール)
     let nAng = start + (Math.min(val, maxVal) / maxVal) * (end - start);
-    ctx.shadowBlur = running ? 20 : 0; 
+    ctx.shadowBlur = running ? 25 : 0; 
     ctx.shadowColor = isB ? "#fff" : "#f40";
     ctx.strokeStyle = isB ? "#fff" : "#ff4500";
-    ctx.lineWidth = 6; ctx.lineCap = "round";
+    ctx.lineWidth = 5; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(nAng)*(r-25), y + Math.sin(nAng)*(r-25));
     ctx.stroke();
     ctx.shadowBlur = 0;
     
     ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#666"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
-    ctx.fillText(title, x, y - 50);
+    ctx.fillStyle = "#555"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
+    ctx.fillText(title + " (x100)", x, y - 60);
 }
 
 function drawBox(ctx, x, y, w, label, val, col) {
