@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD Boost Variable Scale</title>
+    <title>TRD Fixed Scale Sync</title>
     <style>
         body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; font-family: sans-serif; }
         #container { position: relative; border-radius: 20px; box-shadow: 0 0 150px #000; }
@@ -11,9 +11,8 @@
         .buttons { margin-top: 25px; display: flex; gap: 30px; align-items: center; }
         button { background: #111; color: #555; border: 2px solid #333; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 20px rgba(255,0,0,0.4); }
-        #brBtn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid #300; font-size: 14px; color: #400; }
+        #brBtn { width: 85px; height: 85px; border-radius: 50%; border: 4px solid #300; font-size: 13px; color: #600; text-align: center; line-height: 1.2; }
         #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 40px #f00; border-color: #fff; }
-        .mode-label { color: #555; font-size: 12px; position: absolute; bottom: -20px; width: 100%; text-align: center; }
     </style>
 </head>
 <body>
@@ -24,9 +23,7 @@
 
 <div class="buttons">
     <button id="ignBtn">ENGINE START</button>
-    <div style="position:relative;">
-        <button id="brBtn">BOOST<br>500</button>
-    </div>
+    <button id="brBtn">BOOST<br>SCALE 500</button>
 </div>
 
 <script>
@@ -38,7 +35,6 @@ const brBtn = document.getElementById('brBtn');
 let running = false, boostMode = false;
 let realMbps = 0, rtt = 0;
 let dispDown = 0, dispUp = 0;
-let currentMax = 5000;
 
 // --- 0.5秒更新の計測 ---
 async function fetchSpeed() {
@@ -58,7 +54,7 @@ async function fetchSpeed() {
 }
 setInterval(fetchSpeed, 500);
 
-// --- V6 ハイパーサウンド ---
+// --- V6 サウンドエンジン ---
 let audioCtx, v6nodes = [], masterGain;
 function initV6() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -87,21 +83,21 @@ brBtn.onclick = () => {
 function draw() {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // ブースト時にスケールを500に、通常時は5000に切り替え
-    let targetMax = boostMode ? 500 : 5000;
-    currentMax += (targetMax - currentMax) * 0.1; // スケール切替を滑らかに
-
-    // 表示用の数値計算 (5000スケールならMbps*10, 500スケールならMbps*100)
-    let multiplier = boostMode ? 100 : 10;
-    let targetDown = realMbps * multiplier;
+    // 【重要】表示ロジックの修正
+    // 5000スケール：1Mbps = 10ユニット
+    // 500スケール： 1Mbps = 10ユニット
+    // つまり、どちらのモードでも target = realMbps * 10 で固定！
+    let targetDown = realMbps * 10;
     let targetUp = targetDown * 0.5;
 
-    let ease = boostMode ? 0.2 : 0.05;
+    let currentMax = boostMode ? 500 : 5000;
+    let ease = boostMode ? 0.3 : 0.08;
     dispDown += (targetDown - dispDown) * ease;
     dispUp += (targetUp - dispUp) * ease;
 
     if(audioCtx && running) {
-        const baseFreq = 32 + (Math.min(dispDown, currentMax) / currentMax) * 350;
+        // 音も「そのモードの限界」に対してどれくらい出ているかで変化
+        const baseFreq = 35 + (Math.min(dispDown, currentMax) / currentMax) * 300;
         v6nodes.forEach(n => n.osc.frequency.setTargetAtTime(baseFreq * n.ratio, audioCtx.currentTime, 0.05));
         masterGain.gain.setTargetAtTime(0.2 + (Math.min(dispDown, currentMax)/currentMax)*0.7, audioCtx.currentTime, 0.05);
     } else if(masterGain) {
@@ -109,9 +105,9 @@ function draw() {
     }
 
     ctx.save();
-    if(running && dispDown > (currentMax * 0.6)) {
-        let intensity = (dispDown / currentMax) * 4.0;
-        ctx.translate((Math.random()-0.5)*intensity, (Math.random()-0.5)*intensity);
+    // 画面振動の閾値を調整
+    if(running && dispDown > (currentMax * 0.7)) {
+        ctx.translate((Math.random()-0.5)*3, (Math.random()-0.5)*3);
     }
 
     drawTRD(ctx, 320, 250, 210, dispDown, currentMax, boostMode, "DOWNLOAD");
@@ -119,7 +115,7 @@ function draw() {
 
     drawBox(ctx, 60, 400, 130, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
     drawBox(ctx, 720, 420, 120, "PING (3)", rtt + "ms", "#f90");
-    drawBox(ctx, 855, 420, 120, "Mbps (4)", realMbps.toFixed(1), boostMode ? "#f00" : "#0f0");
+    drawBox(ctx, 855, 420, 120, "REAL Mbps (4)", realMbps.toFixed(1), boostMode ? "#f00" : "#0f0");
 
     ctx.restore();
     requestAnimationFrame(draw);
@@ -141,22 +137,22 @@ function drawTRD(ctx, x, y, r, val, max, isB, title) {
 
         if (isMain) {
             ctx.fillStyle = running ? "#fff" : "#444";
-            ctx.font = "italic bold 14px Arial"; ctx.textAlign = "center";
-            ctx.fillText(Math.round(i), x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
+            ctx.font = "italic bold 15px Arial"; ctx.textAlign = "center";
+            ctx.fillText(i, x + Math.cos(ang)*(r-45), y + Math.sin(ang)*(r-45));
         }
     }
 
     let nAng = start + (Math.min(val, max) / max) * (end - start);
     ctx.shadowBlur = running ? 30 : 0; 
     ctx.shadowColor = isB ? "#f00" : "#f40";
-    ctx.strokeStyle = isB ? "#ff0" : "#ff4500";
+    ctx.strokeStyle = isB ? "#fff" : "#ff4500";
     ctx.lineWidth = 6; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(nAng)*(r-25), y + Math.sin(nAng)*(r-25));
     ctx.stroke();
     
-    ctx.fillStyle = "#666"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
-    ctx.fillText(title + (isB ? " [LOW-RANGE]" : " [HI-RANGE]"), x, y - 65);
+    ctx.fillStyle = "#666"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
+    ctx.fillText(title + (isB ? " [0-50 Mbps]" : " [0-500 Mbps]"), x, y - 65);
 }
 
 function drawBox(ctx, x, y, w, label, val, col) {
