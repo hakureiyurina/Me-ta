@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD 5000 Scale / 0.5s Refresh</title>
+    <title>TRD Boost Variable Scale</title>
     <style>
-        body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
+        body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; font-family: sans-serif; }
         #container { position: relative; border-radius: 20px; box-shadow: 0 0 150px #000; }
         canvas { background: #010101; display: block; border-radius: 16px; border: 1px solid #1a1a1a; }
-        .buttons { margin-top: 25px; display: flex; gap: 30px; }
+        .buttons { margin-top: 25px; display: flex; gap: 30px; align-items: center; }
         button { background: #111; color: #555; border: 2px solid #333; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         #ignBtn.active { color: #f00; border-color: #f00; box-shadow: 0 0 20px rgba(255,0,0,0.4); }
-        #brBtn { width: 75px; height: 75px; border-radius: 50%; border: 4px solid #300; }
-        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 40px #f00; }
+        #brBtn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid #300; font-size: 14px; color: #400; }
+        #brBtn.active { background: #f00; color: #fff; box-shadow: 0 0 40px #f00; border-color: #fff; }
+        .mode-label { color: #555; font-size: 12px; position: absolute; bottom: -20px; width: 100%; text-align: center; }
     </style>
 </head>
 <body>
@@ -23,7 +24,9 @@
 
 <div class="buttons">
     <button id="ignBtn">ENGINE START</button>
-    <button id="brBtn">Br</button>
+    <div style="position:relative;">
+        <button id="brBtn">BOOST<br>500</button>
+    </div>
 </div>
 
 <script>
@@ -32,11 +35,12 @@ const ctx = canvas.getContext('2d');
 const ignBtn = document.getElementById('ignBtn');
 const brBtn = document.getElementById('brBtn');
 
-let running = false, boost = false;
-let downVal = 0, upVal = 0, rtt = 0;
+let running = false, boostMode = false;
+let realMbps = 0, rtt = 0;
 let dispDown = 0, dispUp = 0;
+let currentMax = 5000;
 
-// --- 0.5秒間隔の超高速計測 ---
+// --- 0.5秒更新の計測 ---
 async function fetchSpeed() {
     if (!running) return;
     const testUrl = "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?n=" + Date.now();
@@ -45,23 +49,16 @@ async function fetchSpeed() {
         const response = await fetch(testUrl, { mode: 'cors', cache: 'no-store' });
         const blob = await response.blob();
         const end = performance.now();
-        const dur = Math.max((end - start) / 1000, 0.001);
-        const realMbps = (blob.size * 8 / dur) / 1000000;
-        
-        downVal = realMbps * 10; 
+        realMbps = (blob.size * 8 / ((end - start) / 1000)) / 1000000;
         rtt = Math.floor(end - start);
-        upVal = downVal * (0.5 + Math.random() * 0.2);
     } catch (e) {
-        const conn = navigator.connection || {};
-        downVal = (conn.downlink || 0) * 10;
-        rtt = conn.rtt || 0;
-        upVal = downVal * 0.4;
+        realMbps = (navigator.connection?.downlink || 0);
+        rtt = navigator.connection?.rtt || 0;
     }
 }
-// 0.5秒ごとにアップデート
 setInterval(fetchSpeed, 500);
 
-// --- V6 ハイパー・サウンドエンジン ---
+// --- V6 ハイパーサウンド ---
 let audioCtx, v6nodes = [], masterGain;
 function initV6() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -81,95 +78,94 @@ ignBtn.onclick = () => {
     running = !running;
     ignBtn.classList.toggle('active');
 };
-brBtn.onclick = () => { if(running) boost = !boost; brBtn.classList.toggle('active'); };
+
+brBtn.onclick = () => { 
+    boostMode = !boostMode; 
+    brBtn.classList.toggle('active');
+};
 
 function draw() {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // 0.5秒更新に合わせて針の「追従性（ease）」を強化
-    let ease = boost ? 0.45 : 0.08;
-    dispDown += (downVal - dispDown) * ease;
-    dispUp += (upVal - dispUp) * ease;
+    // ブースト時にスケールを500に、通常時は5000に切り替え
+    let targetMax = boostMode ? 500 : 5000;
+    currentMax += (targetMax - currentMax) * 0.1; // スケール切替を滑らかに
+
+    // 表示用の数値計算 (5000スケールならMbps*10, 500スケールならMbps*100)
+    let multiplier = boostMode ? 100 : 10;
+    let targetDown = realMbps * multiplier;
+    let targetUp = targetDown * 0.5;
+
+    let ease = boostMode ? 0.2 : 0.05;
+    dispDown += (targetDown - dispDown) * ease;
+    dispUp += (targetUp - dispUp) * ease;
 
     if(audioCtx && running) {
-        const baseFreq = 32 + (Math.min(dispDown, 5000) / 5000) * 320;
+        const baseFreq = 32 + (Math.min(dispDown, currentMax) / currentMax) * 350;
         v6nodes.forEach(n => n.osc.frequency.setTargetAtTime(baseFreq * n.ratio, audioCtx.currentTime, 0.05));
-        masterGain.gain.setTargetAtTime(0.25 + (Math.min(dispDown, 5000)/5000)*0.7, audioCtx.currentTime, 0.05);
+        masterGain.gain.setTargetAtTime(0.2 + (Math.min(dispDown, currentMax)/currentMax)*0.7, audioCtx.currentTime, 0.05);
     } else if(masterGain) {
         masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
     }
 
     ctx.save();
-    // 速度に応じた画面振動（2000以上で強くなる）
-    if(running && dispDown > 1000) {
-        let intensity = (dispDown / 5000) * 3.0;
+    if(running && dispDown > (currentMax * 0.6)) {
+        let intensity = (dispDown / currentMax) * 4.0;
         ctx.translate((Math.random()-0.5)*intensity, (Math.random()-0.5)*intensity);
     }
 
-    drawTRD5000(ctx, 320, 250, 210, dispDown, boost, "DOWNLOAD (x10)");
-    drawTRD5000(ctx, 730, 250, 210, dispUp, boost, "UPLOAD (x10)");
+    drawTRD(ctx, 320, 250, 210, dispDown, currentMax, boostMode, "DOWNLOAD");
+    drawTRD(ctx, 730, 250, 210, dispUp, currentMax, boostMode, "UPLOAD");
 
     drawBox(ctx, 60, 400, 130, "CLOCK", new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}), "#aaa");
     drawBox(ctx, 720, 420, 120, "PING (3)", rtt + "ms", "#f90");
-    drawBox(ctx, 855, 420, 120, "REAL Mbps (4)", (downVal/10).toFixed(1), "#0f0");
-
-    if((running && dispDown < 200) || !running) {
-        if(Math.sin(Date.now()/150) > 0) drawWarning(ctx, 105, 190, "BRAKE");
-    }
+    drawBox(ctx, 855, 420, 120, "Mbps (4)", realMbps.toFixed(1), boostMode ? "#f00" : "#0f0");
 
     ctx.restore();
     requestAnimationFrame(draw);
 }
 
-function drawTRD5000(ctx, x, y, r, val, isB, title) {
+function drawTRD(ctx, x, y, r, val, max, isB, title) {
     const start = 0.75 * Math.PI, end = 2.25 * Math.PI;
-    const maxVal = 5000;
+    const step = max / 10;
 
-    for (let i = 0; i <= maxVal; i += 100) {
-        let ang = start + (i / maxVal) * (end - start);
-        let isMain = (i % 500 === 0);
-        let isSub = (i % 100 === 0);
-        ctx.strokeStyle = isMain ? "#eee" : (isSub ? "#333" : "#1a1a1a");
+    for (let i = 0; i <= max; i += (max/50)) {
+        let ang = start + (i / max) * (end - start);
+        let isMain = (i % step === 0);
+        ctx.strokeStyle = isMain ? (isB ? "#f33" : "#eee") : "#222";
         ctx.lineWidth = isMain ? 3 : 1;
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(ang)*(r-(isMain?22:12)), y + Math.sin(ang)*(r-(isMain?22:12)));
+        ctx.moveTo(x + Math.cos(ang)*(r-(isMain?20:10)), y + Math.sin(ang)*(r-(isMain?20:10)));
         ctx.lineTo(x + Math.cos(ang)*r, y + Math.sin(ang)*r);
         ctx.stroke();
 
         if (isMain) {
             ctx.fillStyle = running ? "#fff" : "#444";
-            ctx.font = `italic bold 15px Arial`;
-            ctx.textAlign = "center";
-            ctx.fillText(i, x + Math.cos(ang)*(r-45), y + Math.sin(ang)*(r-45));
+            ctx.font = "italic bold 14px Arial"; ctx.textAlign = "center";
+            ctx.fillText(Math.round(i), x + Math.cos(ang)*(r-40), y + Math.sin(ang)*(r-40));
         }
     }
 
-    let nAng = start + (Math.min(val, maxVal) / maxVal) * (end - start);
-    ctx.shadowBlur = running ? 35 : 0; 
-    ctx.shadowColor = isB ? "#fff" : "#f40";
-    ctx.strokeStyle = isB ? "#fff" : "#ff4500";
+    let nAng = start + (Math.min(val, max) / max) * (end - start);
+    ctx.shadowBlur = running ? 30 : 0; 
+    ctx.shadowColor = isB ? "#f00" : "#f40";
+    ctx.strokeStyle = isB ? "#ff0" : "#ff4500";
     ctx.lineWidth = 6; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(nAng)*(r-25), y + Math.sin(nAng)*(r-25));
     ctx.stroke();
     
-    ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x,y,15,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#666"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
-    ctx.fillText(title, x, y - 65);
+    ctx.fillStyle = "#666"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
+    ctx.fillText(title + (isB ? " [LOW-RANGE]" : " [HI-RANGE]"), x, y - 65);
 }
 
 function drawBox(ctx, x, y, w, label, val, col) {
     ctx.fillStyle = "#050505"; ctx.fillRect(x, y, w, 45);
     ctx.strokeStyle = "#222"; ctx.strokeRect(x, y, w, 45);
     ctx.fillStyle = running ? col : "#222";
-    ctx.font = "bold 21px monospace"; ctx.textAlign = "center";
+    ctx.font = "bold 20px monospace"; ctx.textAlign = "center";
     ctx.fillText(val, x + w/2, y + 32);
     ctx.fillStyle = "#444"; ctx.font = "9px Arial"; ctx.fillText(label, x + w/2, y - 8);
-}
-
-function drawWarning(ctx, x, y, txt) {
-    ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 9px Arial"; ctx.textAlign = "center"; ctx.fillText(txt, x, y + 32);
 }
 
 draw();
