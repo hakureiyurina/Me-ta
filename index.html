@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRD 5000 Scale / 500Mbps</title>
+    <title>TRD 5000 Scale / 0.5s Refresh</title>
     <style>
         body { background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
         #container { position: relative; border-radius: 20px; box-shadow: 0 0 150px #000; }
@@ -36,7 +36,7 @@ let running = false, boost = false;
 let downVal = 0, upVal = 0, rtt = 0;
 let dispDown = 0, dispUp = 0;
 
-// --- 5000スケール計測 (5000 = 500Mbps) ---
+// --- 0.5秒間隔の超高速計測 ---
 async function fetchSpeed() {
     if (!running) return;
     const testUrl = "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js?n=" + Date.now();
@@ -45,13 +45,12 @@ async function fetchSpeed() {
         const response = await fetch(testUrl, { mode: 'cors', cache: 'no-store' });
         const blob = await response.blob();
         const end = performance.now();
-        const dur = (end - start) / 1000;
+        const dur = Math.max((end - start) / 1000, 0.001);
         const realMbps = (blob.size * 8 / dur) / 1000000;
         
-        // 5000スケール対応: 10倍 (100Mbpsなら1000を指す)
         downVal = realMbps * 10; 
         rtt = Math.floor(end - start);
-        upVal = downVal * 0.6; // アップロード比率
+        upVal = downVal * (0.5 + Math.random() * 0.2);
     } catch (e) {
         const conn = navigator.connection || {};
         downVal = (conn.downlink || 0) * 10;
@@ -59,7 +58,8 @@ async function fetchSpeed() {
         upVal = downVal * 0.4;
     }
 }
-setInterval(fetchSpeed, 1500); // 高速サンプリング
+// 0.5秒ごとにアップデート
+setInterval(fetchSpeed, 500);
 
 // --- V6 ハイパー・サウンドエンジン ---
 let audioCtx, v6nodes = [], masterGain;
@@ -67,7 +67,7 @@ function initV6() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
     masterGain.connect(audioCtx.destination);
-    [1, 1.5, 2.0, 3.5].forEach(r => {
+    [1, 1.5, 2.0, 3.51].forEach(r => {
         let o = audioCtx.createOscillator();
         o.type = (r >= 2) ? 'triangle' : 'sawtooth';
         o.connect(masterGain); o.start();
@@ -85,23 +85,25 @@ brBtn.onclick = () => { if(running) boost = !boost; brBtn.classList.toggle('acti
 
 function draw() {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    let ease = boost ? 0.4 : 0.03;
+    
+    // 0.5秒更新に合わせて針の「追従性（ease）」を強化
+    let ease = boost ? 0.45 : 0.08;
     dispDown += (downVal - dispDown) * ease;
     dispUp += (upVal - dispUp) * ease;
 
     if(audioCtx && running) {
-        // 5000スケールに合わせた轟音化
-        const baseFreq = 32 + (Math.min(dispDown, 5000) / 5000) * 300;
-        v6nodes.forEach(n => n.osc.frequency.setTargetAtTime(baseFreq * n.ratio, audioCtx.currentTime, 0.1));
-        masterGain.gain.setTargetAtTime(0.2 + (Math.min(dispDown, 5000)/5000)*0.7, audioCtx.currentTime, 0.1);
+        const baseFreq = 32 + (Math.min(dispDown, 5000) / 5000) * 320;
+        v6nodes.forEach(n => n.osc.frequency.setTargetAtTime(baseFreq * n.ratio, audioCtx.currentTime, 0.05));
+        masterGain.gain.setTargetAtTime(0.25 + (Math.min(dispDown, 5000)/5000)*0.7, audioCtx.currentTime, 0.05);
     } else if(masterGain) {
-        masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
+        masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
     }
 
     ctx.save();
-    if(running && dispDown > 2000) {
-        // 高速域での画面の揺れ
-        ctx.translate((Math.random()-0.5)*2.5, (Math.random()-0.5)*2.5);
+    // 速度に応じた画面振動（2000以上で強くなる）
+    if(running && dispDown > 1000) {
+        let intensity = (dispDown / 5000) * 3.0;
+        ctx.translate((Math.random()-0.5)*intensity, (Math.random()-0.5)*intensity);
     }
 
     drawTRD5000(ctx, 320, 250, 210, dispDown, boost, "DOWNLOAD (x10)");
@@ -143,7 +145,7 @@ function drawTRD5000(ctx, x, y, r, val, isB, title) {
     }
 
     let nAng = start + (Math.min(val, maxVal) / maxVal) * (end - start);
-    ctx.shadowBlur = running ? 30 : 0; 
+    ctx.shadowBlur = running ? 35 : 0; 
     ctx.shadowColor = isB ? "#fff" : "#f40";
     ctx.strokeStyle = isB ? "#fff" : "#ff4500";
     ctx.lineWidth = 6; ctx.lineCap = "round";
